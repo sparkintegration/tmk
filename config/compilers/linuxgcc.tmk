@@ -1,5 +1,5 @@
 # if cross compiling, set up correct binary prefix for gcc tools
-if {$::OS != "linux"} {
+if {[string toupper $::OS] != "LINUX"} {
 	set gcc_bin_prefix i686-pc-linux-gnu-
 }
 
