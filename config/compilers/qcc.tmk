@@ -3,8 +3,17 @@ source [file join $::tmk::compilersConfigDir gcc.tmk]
 
 # now we override a lot of stuff
 
-set_ifndef QNX_TARGET $::env(QNX_TARGET)
-set_ifndef QNX_HOST $::env(QNX_HOST)
+if {[info exists env(QNX_TARGET)]} {
+	set_ifndef QNX_TARGET $::env(QNX_TARGET)
+} else {
+	set_ifndef QNX_TARGET /cross/qnx/target
+}
+
+if {[info exists env(QNX_HOST)]} {
+	set_ifndef QNX_HOST $::env(QNX_HOST)
+} else {
+	set_ifndef QNX_HOST /cross/qnx/host
+}
 
 config set LINKER $QNX_HOST/usr/bin/ntox86-ld-2.17
 config set ASSEMBLER $QNX_HOST/usr/bin/ntox86-as-2.17
