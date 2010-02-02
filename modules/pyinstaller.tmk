@@ -1,0 +1,96 @@
+#	Title: pyinstaller Module
+#
+# =========================================================================
+#
+# 		TMK module for supporting pyinstaller packaged python programs
+# ===========================================================================
+# pyinstaller location can be specified (or default to /cross/win32/pyinstaller)
+# if config file is specified use it
+#   or, look for config file in build directory
+#     or, run Configure.py with specified system32, path, python.exe, or default to /cross/win32/pyinstaller/etc
+# if spec file is specified use it
+#   or, look for spec file in build directory
+#     or, PYTHONFILE is required and generate spec file with Makespec.py
+# run Build.py on the spec file
+
+when_target os!=mswin { skip }
+
+#	Variable: PYINSTALLER_DIR
+#		Set the location of the pyinstaller tools
+set_ifndef PYINSTALLER_DIR "/cross/win32/pyinstaller"
+
+#	Variable: SYSTEM32_DIR
+#		Set the location of the pyinstaller tools
+set_ifndef SYSTEM32_DIR "/cross/win32/pyinstaller/support/system32"
+
+#	Variable: PYTHON_EXE
+#		Set the location of the pyinstaller tools
+set_ifndef PYTHON_EXE "/cross/win32/pyinstaller/support/Python25/python.exe"
+
+#	Variable: PYTHON_SYSPATH
+#		Set the location of the pyinstaller tools
+set_ifndef PYTHON_SYSPATH {"/cross/win32/pyinstaller/support/Python25/Lib" 
+							"/cross/win32/pyinstaller/support/Python25/DLLs" 
+							"/cross/win32/pyinstaller/support/Python25/Lib/site-packages"}
+
+set_ifndef BUILD_DIR [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
+
+set_ifndef SPEC_FILE "Python.spec"
+
+proc get_config {} {
+	if { [ info exists pyinstaller::CONFIG ] } {
+		return $pyinstaller::CONFIG
+	}
+	set configLocation [file join $pyinstaller::BUILD_DIR "pyinstaller_config.dat"]
+	if { [file isfile $configLocation ] } {
+		return $configLocation
+	}
+	
+	puts "Need to generate pyinstaller config..."
+	# TODO: This should be created the way it normally is probably (with a build_id, etc..)?
+	file mkdir $pyinstaller::BUILD_DIR
+	
+	cmd python $pyinstaller::PYINSTALLER_DIR/Configure.py -C $configLocation --target-platform=win32 \
+		--system32-dir=$pyinstaller::SYSTEM32_DIR --executable=$pyinstaller::PYTHON_EXE \
+		--sys-path=[join $pyinstaller::PYTHON_SYSPATH ","]
+	
+	return $configLocation
+}
+
+proc get_spec {configFile} {
+	if { [ info exists pyinstaller::SPEC_FILE ] } {
+		return $pyinstaller::SPEC_FILE
+	}
+	
+	if { ![ info exists pyinstaller::SCRIPTNAME ] } {
+		puts "No spec file (pyinstaller::SPEC_FILE) was specified, so pyinstaller::SCRIPTNAME must be set!!"
+		exit 1
+	}
+	
+	set baseName [lindex [split $pyinstaller::SCRIPTNAME .] 0]
+	set specFileName [file join $pyinstaller::BUILD_DIR "$baseName.spec"]
+	if { [file isfile $specFileName ] } {
+		return $specFileName
+	}
+	
+	puts "Need to generate a spec file..."
+	cmd python $pyinstaller::PYINSTALLER_DIR/Makespec.py -C $configFile -o $pyinstaller::BUILD_DIR -n "$baseName" $pyinstaller::SCRIPTNAME
+	
+	return $specFileName
+}
+
+proc build_exe {configFile specFile} {
+	cmd python $pyinstaller::PYINSTALLER_DIR/Build.py -C $configFile $specFile
+}
+
+target $pyinstaller::SPEC_FILE ALWAYS_BUILD {
+	if { ![lcontains $::tmk::cmdLineTargets "clean"] } {
+		set configFile [pyinstaller::get_config]
+		puts "Pyinstaller config file: $configFile"
+		set specFile [pyinstaller::get_spec $configFile]
+		puts "Pyinstaller spec file: $specFile"
+		pyinstaller::build_exe $configFile $specFile
+	}
+}
+
+build $pyinstaller::SPEC_FILE

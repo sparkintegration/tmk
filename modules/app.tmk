@@ -1,0 +1,203 @@
+#	Variable: EXE
+#		Executable to be included in the distribution
+set_ifndef EXE ""
+proc set_exe {} {
+    
+    if { $app::EXE == "" } {
+        set app::EXE $::DIRTAIL
+    }
+}
+
+#	Variable: APPNAME
+#		Application name (must match the name of one executable, defaulting
+#		to the first)
+set_ifndef APPNAME ""
+proc set_appname {} {
+    
+    if { $app::APPNAME == "" } {
+        set app::APPNAME $app::EXE
+    }
+}
+
+#	Variable: DESCRIPTION
+#		Application description string
+set_ifndef DESCRIPTION ""
+
+#	Variable: VERSION
+#		Application version string
+set_ifndef VERSION ""
+proc set_version {} {
+    
+    if { $app::VERSION == "" } {
+        set app::VERSION "0"
+    }
+}
+
+#	Variable: ICON
+#		A custom icon file can be provided here (should be a .icns file for OSX and a .ico file for Windows)
+set_ifndef ICON ""
+
+#	Variable: RESOURCES
+#		List of resources to include
+set_ifndef RESOURCES {}
+
+#	Variable: SO_RESOURCES
+#		List of shared object resources to include (these will have install
+#		names patched) - OSX only
+set_ifndef SO_RESOURCES {}
+
+#	Variable: AUTHOR
+#		Set the author of the application
+set_ifndef AUTHOR "Spark Integration Technologies Inc."
+
+eval_after {
+	app::set_exe
+	app::set_appname
+	app::set_version
+	
+	switch $::TARGET_OS {
+		"osx" {
+			module { bundle }
+		
+			set bundle::EXES			$app::EXE
+			set bundle::APPNAME			$app::APPNAME
+			set bundle::DESCRIPTION 	$app::DESCRIPTION
+			set bundle::VERSION			$app::VERSION
+			set bundle::ICON			$app::ICON
+			set bundle::RESOURCES		$app::RESOURCES
+			set bundle::SO_RESOURCES	$app::SO_RESOURCES
+		}
+		"mswin" {
+			module { res }
+		
+			proc resource_type { res } {
+				switch [string tolower [file extension $res]] {
+					.bmp	{ return "BITMAP" }
+					.cur	-
+					.ani	{ return "CURSOR" }
+					.ttf	{ return "FONT" }
+					.html	-
+					.htm	{ return "HTML" }
+					.ico	{ return "ICON" }
+					default	{ return "UNKNOWN" }
+				}
+			}
+		
+			proc format_file_version { version } {
+				set dotBits [split $version "."]
+				set ts 0
+				set segments {0 0 0 0}
+			
+				if { [llength $dotBits] == 3 } {
+					set segments [lreplace $segments 0 0 [lindex $dotBits 0]]
+					set segments [lreplace $segments 1 1 [lindex $dotBits 1]]
+					set ts 2
+				} elseif { [llength $dotBits] == 2 } {
+					set segments [lreplace $segments 0 0 [lindex $dotBits 0]]
+					set ts 1
+				}
+			
+				set rel 0
+				set ver 0
+				set ver_rel [lindex $dotBits $ts]
+				switch -regexp [lindex $dotBits $ts] {
+					\\d+a\\d+ {
+						set ver_rel [split $ver_rel "a"]
+						set rel [expr 0x900 + [lindex $ver_rel 1]]
+						set ver [lindex $ver_rel 0]
+					}
+					\\d+b\\d+ {
+						set ver_rel [split $ver_rel "b"]
+						set rel [expr 0xA000 + [lindex $ver_rel 1]]
+						set ver [lindex $ver_rel 0]
+					}
+					\\d+rc\\d+ {
+						set ver_rel [lremove [split $ver_rel "rc"] ""]
+						set rel [expr 0xC000 + [lindex $ver_rel 1]]
+						set ver [lindex $ver_rel 0]
+					}
+					\\d+p\\d+ {
+						set ver_rel [split $ver_rel "p"]
+						set rel [lindex $ver_rel 1]
+						set ver [lindex $ver_rel 0]
+					}
+					default {
+						set ver $ver_rel
+					}
+				}
+			
+				set segments [lreplace $segments 3 3 $rel]
+				set segments [lreplace $segments $ts $ts $ver]
+				
+				return [join $segments ","]
+			}
+		
+			proc make_rc {} {
+				puts "Generating Windows resource file...."
+				set origdir [pwd]
+				cd $::PROJROOT/$::SUBDIR
+				set resName ${app::EXE}.rc
+				
+				set year [clock format [clock seconds] -format %Y]
+				set fileVersion [format_file_version $app::VERSION]
+			
+				set rcFile [open $resName w]
+				puts $rcFile "#include <windows.h>"
+				puts $rcFile ""
+				if { $app::ICON != "" } {
+					puts $rcFile "/* The first icon (alphabetically) becomes the primary one for the application */"
+					puts $rcFile "AAAA	ICON	\"$app::ICON\""
+					puts $rcFile ""
+				}
+				puts $rcFile "/* Version information */"
+				puts $rcFile "VS_VERSION_INFO VERSIONINFO"
+				puts $rcFile "FILEVERSION		${fileVersion}"
+				puts $rcFile "PRODUCTVERSION	${fileVersion}"
+				puts $rcFile "FILEFLAGSMASK	VS_FFI_FILEFLAGSMASK"
+				puts $rcFile "FILEFLAGS		(VS_FF_PRIVATEBUILD|VS_FF_PRERELEASE)"
+				puts $rcFile "FILEOS			VOS_NT_WINDOWS32"
+				puts $rcFile "FILETYPE		VFT_APP"
+				puts $rcFile "FILESUBTYPE		VFT2_UNKNOWN"
+				puts $rcFile "BEGIN"
+				puts $rcFile "	BLOCK \"StringFileInfo\""
+				puts $rcFile "	BEGIN"
+				puts $rcFile "		BLOCK \"040904E4\""
+				puts $rcFile "		BEGIN"
+				puts $rcFile "			VALUE \"CompanyName\",		\"${app::AUTHOR}\\0\""
+				puts $rcFile "			VALUE \"FileDescription\",	\"${app::DESCRIPTION}\\0\""
+				puts $rcFile "			VALUE \"FileVersion\",		\"${app::VERSION}\\0\""
+				puts $rcFile "			VALUE \"InternalName\",		\"${app::APPNAME}\\0\""
+				puts $rcFile "			VALUE \"LegalCopyright\",		\"(c) ${year} ${app::AUTHOR}\\0\""
+				puts $rcFile "			VALUE \"OriginalFilename\",	\"${app::APPNAME}.exe\\0\""
+				puts $rcFile "			VALUE \"ProductName\",		\"${app::APPNAME}\\0\""
+				puts $rcFile "			VALUE \"ProductVersion\",		\"${app::VERSION}\\0\""
+				puts $rcFile "		END"
+				puts $rcFile "	END"
+				puts $rcFile "END"
+				if { [llength $app::RESOURCES] > 0 } {
+					puts $rcFile ""
+					puts $rcFile "/* Additional resources follow */"
+				}
+			
+				# additional resources
+				foreach res $app::RESOURCES {
+					set name [file tail $res]
+					set type [resource_type $res]
+				
+					if { [string equal $type "UNKNOWN"] } {
+						puts "/* unknown file resource type for ${res} */"
+					} else {
+						puts $rcFile "${name}	${type}	\"$res\""
+					}
+				}
+			
+				close $rcFile
+				
+				cd $origdir
+				puts "Done."
+			}
+			
+			app::make_rc
+		}
+	}
+}

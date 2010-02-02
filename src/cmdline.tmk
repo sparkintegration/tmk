@@ -1,0 +1,151 @@
+# flags without arguments
+set ::tmk::OPT_ACTION(-reconfig) {set ::tmk::forceReconfig 1}
+set ::tmk::OPT_ACTION(-sysinfo)  {set ::tmk::sysInfoOnly 1}
+
+set ::tmk::OPT_ACTION(-prf)      {set ::CODELEVEL "prf"}
+set ::tmk::OPT_ACTION(-dbg)      {set ::CODELEVEL "dbg"}
+set ::tmk::OPT_ACTION(-std)      {set ::CODELEVEL "std"}
+set ::tmk::OPT_ACTION(-opt)      {set ::CODELEVEL "opt"}
+set ::tmk::OPT_ACTION(-max)      {set ::CODELEVEL "max"}
+
+set ::tmk::OPT_ACTION(-silent)   {set ::tmk::doLog 0}
+set ::tmk::OPT_ACTION(-debug)    {incr ::tmk::dbgLevel}
+set ::tmk::OPT_ACTION(-mfdepend) {set ::tmk::selfDepend 1}
+
+set ::tmk::OPT_ACTION(-__in_subdir)   {set ::tmk::inSubdir 1}
+
+# ==========================================================================
+# options with arguments
+# - __args is the number of remaining arguments 
+# - __rest is the remaining list of arguments / options
+# ==========================================================================
+
+set ::tmk::OPT_ACTION(-os) {
+    if {$__args <= 0} {::tmk::exit_with_syntax}
+    set ::TARGET_OS [lindex $__rest 0]
+    set __rest [lrange $__rest 1 end]
+    incr __args -1
+}
+
+set ::tmk::OPT_ACTION(-arch) {
+    if {$__args <= 0} {::tmk::exit_with_syntax}
+    set ::TARGET_ARCH [lindex $__rest 0]
+    set __rest [lrange $__rest 1 end]
+    incr __args -1
+}
+
+set ::tmk::OPT_ACTION(-board) {
+    if {$__args <= 0} {::tmk::exit_with_syntax}
+    set ::TARGET_BOARD [lindex $__rest 0]
+    set __rest [lrange $__rest 1 end]
+    incr __args -1
+}
+
+# explicitly request a module to be loaded (before reading TMakefile)
+set ::tmk::OPT_ACTION(-a) {
+    while { ($__args > 0) && ([string range $__rest 0 0] != "-") } {
+		lappend ::tmk::premodules [lindex $__rest 0]
+		namespace eval :: {
+			eval_before "module [lindex $__rest 0]"
+		}
+		set __rest [lrange $__rest 1 end]
+		incr __args -1
+    }
+}
+
+# explicitly request a module to be loaded (after reading TMakefile)
+set ::tmk::OPT_ACTION(-z) {
+    if {$__args <= 0} {::tmk::exit_with_syntax}
+    while { ($__args > 0) && ([string range $__rest 0 0] != "-") } {
+		lappend ::tmk::postmodules [lindex $__rest 0]
+		namespace eval :: {
+			eval_after "module [lindex $__rest 0]"
+		}
+		set __rest [lrange $__rest 1 end]
+		incr __args -1
+    }
+}
+
+# define a Tcl/tmk variable(s). if no value given, set to 1
+set ::tmk::OPT_ACTION(-D) {
+    if {$__args <= 0} {
+		::tmk::exit_with_syntax
+	}
+	
+    set v [lindex $__rest 0]
+    set __rest [lrange $__rest 1 end]
+    incr __args -1
+    set vv [split $v =]
+    set varname "::[lindex $vv 0]"
+    if {[llength $vv]==1} {
+		set value 1
+    } else {
+		set value [lindex $vv 1]
+    }
+    set ns [namespace qualifiers $varname]
+    set v  [namespace tail $varname]
+    namespace eval :: {
+		eval_before [list namespace eval $ns [list variable $v $value]]
+	}
+}
+
+# define a C preprocessor value. if no value given, set to 1
+set ::tmk::OPT_ACTION(-DC) {
+    if {$__args <= 0} {::tmk::exit_with_syntax}
+    set v [lindex $__rest 0]
+    set __rest [lrange $__rest 1 end]
+    incr __args -1
+    set vv [split $v =]
+    set varname "[lindex $vv 0]"
+    if {[llength $vv]==1} {
+		set value 1
+    } else {
+		set value [lindex $vv 1]
+    }
+
+	namespace eval :: {
+		eval_before [list set c::DEFINES($varname) $value]
+	}
+}
+
+proc tmk::exit_with_syntax {} {
+	global __txt
+	read_file [file join $::tmk::srcDir help.msg] __txt
+	uplevel \#0 {puts stderr [subst -nocommands $__txt]}
+	exit 1
+}
+
+# parse command line and set some global variables accordingly
+proc tmk::parse_command_line { argv0 argv } {
+
+	global ::__opt ::__rest ::__args ::ARGS
+
+	dbg_msg "called $argv0 $argv" 2
+	set ARGS $argv
+	
+	# parse options (starting with -)
+	set __rest $argv
+	set __args [llength $__rest]
+	
+	while { $__args > 0 && "[string range $__rest 0 0]" == "-"} { 
+		set __opt [lindex $__rest 0]
+		set __rest [lrange $__rest 1 end]
+		set __args [llength $__rest]
+	
+		# explicit end of options
+		if { "$__opt" == "--" } {
+			break
+		}
+		if [info exists ::tmk::OPT_ACTION($__opt)] {
+			uplevel \#0 $::tmk::OPT_ACTION($__opt)
+		} else { 
+			exit_with_syntax
+		}
+	}
+
+	# the remaining command line arguments are supposed to be targets
+	if [llength $__rest] {
+		set ::tmk::cmdLineTargets $__rest
+	}
+
+}

@@ -1,0 +1,13 @@
+# if cross compiling, set up correct binary prefix for gcc tools
+if {$::OS != "linux"} {
+	set gcc_bin_prefix i686-pc-linux-gnu-
+}
+
+# source gcc.tmk
+source [file join $::tmk::compilersConfigDir gcc.tmk]
+
+# set linux-specific flags
+set base_CFLAGS {-march=i686 -fpic}
+foreach flag {FLAGS_PRF FLAGS_DBG FLAGS_STD FLAGS_OPT FLAGS_MAX} {
+	config set $flag [concat $base_CFLAGS [set $flag]]
+}

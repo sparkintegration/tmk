@@ -1,0 +1,115 @@
+#	Title: Windows Resource Module
+
+if {![info exists COMPILER]} {
+	puts "Note: cannot use resource module since no compiler is configured for this OS/architecture."
+	module link
+	return
+}
+
+set DEFINES(HOST_OS_[string toupper $OS]) 1
+set DEFINES(TARGET_OS_[string toupper $::TARGET_OS]) 1
+set DEFINES(TARGET_ARCH_[string toupper $::TARGET_ARCH]) 1
+set DEFINES(TARGET_BOARD_[string toupper $::TARGET_BOARD]) 1
+set DEFINES(COMPILER_[string toupper $COMPILER]) 1
+
+#	Variable: FLAGS
+#		Set the windows resource flags
+set_ifndef FLAGS {}
+
+#	Variable: PATTERNS
+#		File suffixes that mark resource code files
+set_ifndef PATTERNS {*.rc}
+
+#	Variable: DETECT
+#		Automatically detect windows resources files
+set_ifndef DETECT 1
+
+#	Variable: OPTIONS
+#		Default meta compiler options for compiling object files
+set_ifndef OPTIONS {}
+
+#	Variable: PROJINCS
+#		Additional include directories
+set_ifndef PROJINCS {}
+
+module { c link }
+
+# by default, the c module also implements the linker
+set_ifndef ::link::LINKER c::${COMPILER}
+
+# return the actual chosen compiler 
+proc get_compiler {} {
+    return ${::res::COMPILER}
+}
+
+# return complete list of resource compiler flags (compiler-specific and general)
+proc default_flags {} {
+    global ::res::FLAGS
+
+	set result $::res::FLAGS
+	foreach {key value} [array get ::res::DEFINES] {
+		lappend result "-D${key}=${value}"
+	}
+	foreach dir $::res::PROJINCS {
+		foreach root [concat $::PROJROOT $::PROJ_LOCATIONS] {
+			set path [file nativename [file join $root $dir]]
+			if { [file isdirectory $path] } {
+				lappend result -I${path}
+			} else {
+				exit_msg "!!! Invalid PROJINC: ${path} !!!"
+			}
+		}
+	}
+    return $result
+}
+
+# compile source file into an object file and handle dependencies
+#   returns target name, e.g. to be used in build [make_obj ...]
+proc make_obj {src {obj {}} {flags_expr undef} {opt_expr undef} } {
+
+    # default values
+    if {$obj == {}}             {set obj [filename_obj [file rootname $src]_rc]}
+    if {$flags_expr == "undef"} {set flags_expr {[::res::default_flags]}}
+    if {$opt_expr == "undef"}   {set opt_expr   {$::res::OPTIONS}}
+
+    # target\: make obj from src
+    set rule {
+		set opt $opt_expr
+	
+		if {[catch {::res::[::res::get_compiler]::compile_res \$TARGET \$SRC $flags_expr \$opt} result]} {
+			file delete -force -- \$TARGET
+			return -code error "\${result}."
+		}
+    }
+    target $obj $src [subst -nocommands $rule]
+	lappend ::link::LIB_OBJ $obj
+
+    return $obj
+}
+
+when_target os=mswin {
+	eval_after {
+
+		# add all possible project root directories as standard include paths
+	    foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+			lappend res::FLAGS -I[file nativename $dir]
+		}
+
+	    # auto-detect resource source files by file patterns?
+	    if $res::DETECT {
+			set obj_names ""
+			set src_names ""
+			foreach pat $res::PATTERNS {
+				foreach src [glob -nocomplain $pat] {
+					# re-check for case sensitive handling
+					# Win2k is case-preserving but not case-sensitive
+					if { [file extension $src] == [file extension $pat] } {
+						res::make_obj $src
+						lappend obj_names [filename_obj [file rootname $src]]
+						lappend src_names $src
+					}
+				}
+			}
+	    }
+	}
+}

@@ -1,0 +1,11 @@
+module { time }
+
+set_attr ENABLE_PROJLIBS
+
+if { [has_attr DX_SW_ENCRYPTION] || [has_attr DX_HW_ENCRYPTION] } {
+	lappend ::link::SYSLIBS "DX_Embedded_Libraries_Encryption"
+} else {
+	lappend ::link::SYSLIBS "DX_Embedded_Libraries"
+}
+
+lappend ::link::LIBPATH $::PROJROOT/lib/$TARGET_BOARD/$TARGET_OS	

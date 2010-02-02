@@ -1,0 +1,29 @@
+# =====================================
+# normal windows setup - using registry 
+# =====================================
+
+if [catch {package require registry}] {
+exit_msg "missing Tcl package 'registry' (please use a newer version of tclsh) !"
+}
+
+set ::OS "mswin"
+
+# get OS info
+set key "HKEY_LOCAL_MACHINE\\Software\\Microsoft"
+set ntkeys {}
+catch {set ntkeys [registry keys "$key\\Windows NT"]} 
+if {$ntkeys != {}} {
+	set key "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows NT\\CurrentVersion"
+	set __windowsVersion "NT[registry get $key "CurrentVersion"]"
+} else {
+	set key "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion"
+	set __windowsVersion [registry get $key "Version"] 
+}
+
+switch -glob $__windowsVersion {
+	"*98" { set ::OSVER "98" } 
+	"*95" { set ::OSVER "95" } 
+	"NT5*" { set ::OSVER "2K" }
+	"NT*" { set ::OSVER $__windowsVersion } 
+	default { set ::OSVER "unknown" }
+}

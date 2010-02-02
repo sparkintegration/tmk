@@ -1,0 +1,623 @@
+# -*-Mode: tcl -*-
+
+#	Variable: MAKE_LIB
+#		Set to build a library
+set_ifndef MAKE_LIB           0
+#	Variable: MAKE_EXE
+#		Set to build an executable
+set_ifndef MAKE_EXE           1
+
+if { $OSCLASS == "windows" } {
+	#	Variable: LINK_MODE
+	#		Set to "static" build static libraries, or "shared" to build shared libraries
+    set_ifndef LINK_MODE      "static"
+	#	Variable: MAKE_SHLIB
+	#		Set to build shared libraries
+    set_ifndef MAKE_SHLIB     0
+} else {
+    set_ifndef LINK_MODE      "shared" ;# shared or static only
+    set_ifndef MAKE_SHLIB     1
+}
+
+#	Variable: OPTIONS
+#		General meta-linker options
+lappend OPTIONS "transitive" "circular"
+#	Variable: LIB_OPTIONS
+#		Static library meta-linker options
+lappend LIB_OPTIONS
+#	Variable: SHLIB_OPTIONS
+#		Shared library meta-linker options
+lappend SHLIB_OPTIONS
+#	Variable: EXE_OPTIONS
+#		Executable meta-linker options
+lappend EXE_OPTIONS   
+
+set_ifndef LIB_OBJ       {}
+#	Variable: PROGRAMS
+#		Specify executable names.  Single entries are the name of both the
+#		object file and executable, such as
+#		>	set link::PROGRAMS { test }
+#		which produces the `test` executable from `test.o`.  Differing object
+#		and executable names can be specified using a tuple, such as
+#		>	set link::PROGRAMS { {MyProgram test} }
+#		which produces the `MyProgram` executable from `test.o`.  This can be
+#		used to explicitly generate executables when `$c::DETECT_EXE` or
+#		`$cxx::DETECT_EXE` are 0.
+#
+#	See Also:
+#		<DETECT_EXE>
+set_ifndef PROGRAMS      {}
+#	Variable: LIBPATH
+#		Additional library search paths
+set_ifndef LIBPATH       {}
+#	Variable: SYSLIBS
+#		Short names of system libraries to link in
+#
+#	See Also:
+#		<LIBPATH>
+set_ifndef SYSLIBS       {}
+#	Variable: PROJLIBS
+#		Paths to project libraries that the current build target depends on.
+#		These paths are relative to the `$::PROJROOT` directory and will be
+#		recursed into and built as needed.
+set_ifndef PROJLIBS      {}
+set_ifndef BASE_PROJLIBS {}
+#	Variable: EXE_PROJLIBS
+#		<PROJLIBS> that should only be linked into executables.  Often used in
+#		TMakefile.proj files to link a common library into every executable.
+set_ifndef EXE_PROJLIBS  {}
+#	Variable: EXE_SYSLIBS
+#		<SYSLIBS> that should only be linked into executables.
+#
+#	See Also:
+#		<EXE_PROJLIBS>
+set_ifndef EXE_SYSLIBS   {}
+#	Variable: EXE_LIBPATH
+#		<LIBPATHs> that should only be used when linking executables.
+#
+#	See Also:
+#		<EXE_SYSLIBS>
+set_ifndef EXE_LIBPATH   {}
+#	Variable: FLAGS
+#		Linker flags to be passed in directly
+set_ifndef FLAGS         {} ;# passed directly to the linker
+
+#	Variable: LIBFLAGS
+#		Linker flags set by config
+set_ifndef LIBFLAGS      {}
+
+if {![array exists KEYED_FLAGS]} {
+	array set KEYED_FLAGS {}
+}
+
+# temporarily alias PROJLIBS etc. as EXE_PROJLIBS etc.
+proc exe_only {code} {
+    if [info exists ::link::exe_only_flag] {
+	exit_msg "cannot nest exe_only commands"
+    } else {
+	set ::link::exe_only_flag 1
+    }
+    # save old variable names and use 'trace' to reate aliases
+    foreach var {OPTIONS LIBPATH SYSLIBS PROJLIBS} {
+	eval set ::link::SAVE_$var \$::link::$var
+	eval set ::link::$var \$::link::EXE_$var
+
+	# on read: just return the other value
+	trace variable ::link::$var "r" ::link::read_$var
+	proc ::link::read_$var {args} [list return \$::link::EXE_$var]
+	# on write: 'write through' to EXE_..., then restore old value 
+	trace variable ::link::$var "w" ::link::write_$var
+	proc ::link::write_$var {args} [subst -nocommands {
+	    set ::link::EXE_$var \$::link::$var
+	}]
+    }
+
+    # now exec the script in the original context
+    uplevel 1 $code
+
+    # delete traces
+    foreach var {OPTIONS LIBPATH SYSLIBS PROJLIBS} {
+	trace vdelete ::link::$var "r" ::link::read_$var
+	trace vdelete ::link::$var "w" ::link::write_$var
+	eval set ::link::$var \$::link::SAVE_$var
+    }
+    unset ::link::exe_only_flag
+}
+
+# create unique name for a project library. 
+# - dir is the relative project subdir (e.g. $SUBDIR)
+# - libname is the intended short name for the lib (e.g. $DIRTAIL)
+proc unique_lib_name { dir libname } {
+    normalize_filevar dir
+    normalize_filevar libname
+    set libtail [file tail $libname]
+    set dirtail [file tail $dir]
+    regsub -all {/} $dir {_} dir
+    regsub -all {\.} $dir {} dir
+    if [string compare $libtail $dirtail] {
+		return "${dir}_$libtail"
+    } else {
+		return "${dir}"
+    }
+}
+
+# find the absolute path for a project lib
+proc find_projlib_dir {projlib {err 0}} {
+
+    set subdir  [lindex $projlib 0]
+    set libname [projlib_name $projlib]
+
+    # find first dir in path that actually exists
+    set dir [find_proj_file $subdir]
+    if {$dir == {}} {
+		if $err {
+	    	exit_msg "could not find project subdir $subdir"
+		}
+		return ""
+    }
+    
+	return $dir
+}
+
+# short name of a project lib
+# - either the default unique name, or 
+# - libname is a pair (subdir shortname)
+proc projlib_name {projlib} {
+    switch [llength $projlib] {
+	"1" { return [unique_lib_name $projlib [file tail $projlib]] }
+	"2" { return [lindex $projlib 1] }
+    }
+    set msg "project lib syntax error: \{$projlib\}\n"
+    append msg "  should be either {<subdir>} or {<subdir> <libname>}"
+    exit_msg $msg
+}
+
+# "libraries specification" methods
+proc libspec { cmd args } {
+    set procname ::link::libspec_$cmd
+    if {[llength [info commands $procname]] == 0} {
+	exit_msg "unknown library specification command: $cmd"
+    }
+    return [uplevel 1 $procname $args]
+}
+proc libspec_create { {libpath {}} {syslibs {}} {projlibs {}} \
+	{opt "$LINK_MODE"} {flags {}}} {
+    return [list $libpath $syslibs $projlibs $opt $flags]
+}
+proc libspec_libpath  {spec} {
+    uplevel \#0 dbg_msg \"lib path is \{[lindex $spec 0]\}\" 2
+    uplevel \#0 return [lindex $spec 0]
+}
+proc libspec_syslibs  {spec} {
+    uplevel \#0 dbg_msg \"syslibs are \{[lindex $spec 1]\}\" 2
+    uplevel \#0 return [lindex $spec 1]
+}
+proc libspec_projlibs {spec} {
+    uplevel \#0 dbg_msg \"projlibs are \{[lindex $spec 2]\}\" 2
+    uplevel \#0 return [lindex $spec 2]
+}
+proc libspec_options {spec} {
+    uplevel \#0 dbg_msg \"link mode is \{[lindex $spec 3]\}\" 2
+    uplevel \#0 return [lindex $spec 3]
+}
+proc libspec_flags {spec} {
+    uplevel \#0 dbg_msg \"flags are \{[lindex $spec 4]\}\" 2
+    uplevel \#0 return [lindex $spec 4]
+}
+
+# return list of dependencies for this libspec, static libs first
+proc libspec_dependencies {libspec} {
+    set dirs {}
+    # only check proj libs so far
+    foreach lib [libspec projlibs $libspec] {
+		# find directory in which lib should be
+		set d [find_projlib_dir $lib]
+		if {$d == {}} {
+		    log_msg "could not find project subdir for $lib"
+		} else {
+			lappend dirs $d
+		}
+    }
+
+    return $dirs
+}
+
+# return list of pairs (directory, libname) for the proj libs
+proc libspec_projlib_list {libspec {err 0}} {
+    set static_libs {}
+    set shared_libs {}
+
+    # only check proj libs so far
+    foreach lib [libspec projlibs $libspec] {
+	# find directory in which lib should be
+	set d [file join [find_projlib_dir $lib $err] [tmk_output_dir]]
+	set n [projlib_name $lib]
+	if {$d == {}} {
+	    if $err {
+			exit_err "project subdir [lindex $lib 0] not found."
+	    }
+	    set d "<subdir not found: [lindex $lib 0]>"
+	}
+
+	# shared or static or what (static first!)
+	set stat $d/[filename_lib $n]
+	set shar $d/[filename_shlib $n]
+	
+	if [lcontains [libspec options $libspec] "static"] {
+	    lappend static_libs [list $d $n]
+	} else {
+	    if {(![file exists $shar]) && [file exists $stat]} {
+			lappend static_libs [list $d $n]
+	    } else {
+			lappend shared_libs [list $d $n]
+	    }
+	}
+	
+    }
+
+    return [concat $static_libs $shared_libs]
+}
+
+# return new libspec that also contains transitively linked libraries
+#   if the specified meta options say so (contain "transitive")
+proc libspec_transitive {libspec opt} {
+
+    set result $libspec
+
+    if [lcontains $opt "transitive"] {
+
+	# look for each projlib we find a .libspec file there
+	foreach p [libspec projlib_list $libspec] {
+	    set dir [lindex $p 0]
+	    set lib [lindex $p 1]
+	    set file "$dir/[file rootname [filename_lib $lib]].libspec"
+	    if [file exists $file] {
+		dbg_msg "processing transitive libs in $file" 2
+		if [catch {set trans [source $file]} msg] {
+		    exit_msg "could not read library spec $file:\n  $msg"
+		}
+
+		set result [libspec merge $result $trans]
+		
+	    } else {
+		dbg_msg "no file $file" 2
+	    }
+	}
+	
+	set p [lminus [libspec projlibs $result] [libspec projlibs $libspec]]
+	set s [lminus [libspec syslibs  $result] [libspec syslibs  $libspec]]
+	dbg_msg "additional transitive libs: \[[concat $p $s]\]" 1
+
+    } else {
+	dbg_msg "no transitive linking, option $opt" 0
+    }
+
+    return $result
+}
+
+# return tmk script that sets this libspec
+proc libspec_dump {libspec targetname} {
+
+    set comment(libpath)  "path for finding all the libs"
+    set comment(syslibs)  "external/system libraries"
+    set comment(projlibs) "project libraries (project-relative path)" 
+    set comment(options)  "misc lib options"
+	set comment(flags)	  "ld flags"
+
+    set    r "# additional libs needed for using $targetname\n"
+    append r "# (enables tmk to do transitive linking)\n\n"
+
+    append r "namespace eval ::tmk::tmp {\n\n"
+
+    foreach x {libpath syslibs projlibs options} {
+		append r "  # $comment($x)\n"
+		set list [join [libspec $x $libspec] "\n    "]
+		if {[llength $list] > 1} {
+		    append r "  variable $x \{\n    ${list}\n  \}\n\n"
+		} else {
+		    append r "  variable $x \{${list}\}\n\n"
+		}
+    }
+
+	append r "  # $comment(flags)\n"
+	set flags [join [libspec flags $libspec] "\n    "]
+	set list {}
+	foreach flag $flags {
+		lappend list [list $flag]
+	}
+	if {[llength $list] > 1} {
+	    append r "  variable flags \{\n    ${list}\n  \}\n\n"
+	} else {
+	    append r "  variable flags \{${list}\}\n\n"
+	}
+
+    append r "  return \[::link::libspec create \\\{\$libpath\\\} \\\{\$syslibs\\\} \\\{\$projlibs\\\} \\\{\$options\\\} \\\{\$flags\\\}\]\n"
+    append r "}\n"
+    return $r
+}
+
+# evaluate and merge two libspecs and return a new one
+# if unify is set, then only merge libs/paths from spec2 that are not in spec1
+proc libspec_merge {spec1 spec2 {unify 1}} {
+
+    foreach x {libpath syslibs projlibs options flags} {
+	variable $x {}
+	set l1 [libspec $x $spec1]
+	set l2 [libspec $x $spec2]
+	
+	set temp [concat $l1 $l2]
+	
+	if $unify {
+		array set seen {}
+		set rev [lreverse $temp]
+		set output {}
+		foreach value $rev {
+			if {![info exists seen($value)]} {
+				set seen($value) 1
+				lappend output $value
+			}
+		}
+		set temp [lreverse $output]
+	}
+	
+	set $x $temp
+    }
+
+    return [libspec create \{$libpath\} \{$syslibs\} \
+	    \{$projlibs\} \{$options\} \{$flags\}] 
+}
+
+
+# create target for generating a local static library
+# * please note that the _expr expressions will not be evaluated
+#   before inside the target command / dependency check
+# * returns targetname (e.g. use as in "build [make_lib ...]")
+proc make_lib {libname obj_expr {libspec undef} {flags_expr undef} {opt_expr undef}} {
+
+    # some reasonable default values
+    if {$libspec == "undef"} { set libspec [::link::default_libspec] }
+    if {$flags_expr == "undef"} { set flags_expr {[::link::ld_flags]} }
+    if {$opt_expr == "undef"} { set opt_expr {[concat $::link::LIB_OPTIONS $::link::OPTIONS]} }
+
+    # generate target for lib, and add libspec as secondary dependencies
+    set trans "\[::link::libspec transitive [list $libspec] $opt_expr\]"
+    set rule {
+		if {[llength \$SRC] == 0} {
+		    dbg_msg "\$TARGET skipped - no object files"
+		    mark_target_untouched \$TARGET
+		} else {
+		    set thelibs $trans
+		    if {![lcontains $opt_expr "lib_in_lib"]} {
+				# only dump libs into info file
+				set libs [::link::libspec dump \$thelibs \$TAIL]
+				write_file \$ROOT.libspec libs 
+				set thelibs [::link::libspec create] ;# reset to empty libspec
+		    } else {
+				file delete -force -- \$ROOT.libspec
+		    }
+		
+		    ::\${link::LINKER}::link_lib \
+			    [file nativename \$TARGET]\
+		            [lmap \$SRC {[list [file nativename \$ITEM]]}]\
+			    \$thelibs $flags_expr $opt_expr
+		}
+    }
+
+    target $libname $obj_expr [subst -nocommands $rule]
+    depend $libname "\[::link::libspec dependencies $trans\]"
+
+    return $libname
+}
+# create target for generating a local shared library
+# * please note that flags_expr and options_expr will not be evaluated
+#   before inside the target command and inside the dependency check
+# * returns targetname (e.g. use as in "build [make_lib ...]")
+proc make_shlib {libname obj_expr \
+	{libspec undef} {flags_expr undef} {opt_expr undef} } {
+
+    # some reasonable default values
+    if {$libspec == "undef"} { set libspec [::link::default_libspec] }
+    if {$flags_expr == "undef"} { set flags_expr {[::link::ld_flags]} }
+    if {$opt_expr == "undef"} { set opt_expr {[concat $::link::SHLIB_OPTIONS $::link::OPTIONS]} }
+
+    # generate target for lib, and add libspec as secondary dependencies
+    set trans "\[::link::libspec transitive [list $libspec] $opt_expr\]"
+    set rule {
+		if {[llength \$SRC] == 0} {
+		    dbg_msg "\$TARGET skipped - no object files"
+		    mark_target_untouched \$TARGET
+		} else {
+		    set opt      $opt_expr
+		    set thelibs $trans
+		    if {![lcontains \$opt "lib_in_lib"]} {
+				# only dump libs into info file
+				set libs [::link::libspec dump \$thelibs \$TAIL]
+				write_file \$ROOT.libspec libs 
+				set thelibs [::link::libspec create] ;# reset to empty libspec
+		    } else {
+				file delete -force -- \$ROOT.libspec
+		    }
+
+		    ::\${link::LINKER}::link_shlib \
+			    [file nativename \$TARGET] \
+			    [lmap \$SRC {[list [file nativename \$ITEM]]}] \
+			    \{\} \$thelibs [concat $flags_expr [join [join [::link::libspec flags \$thelibs]]]] \$opt
+
+		    set allObjects "[lmap \$SRC {[list [file nativename \$ITEM]]}]"
+		    write_file \$ROOT.object_list allObjects
+		}
+    }
+    target $libname $obj_expr [subst -nocommands $rule]
+    depend $libname "\[::link::libspec dependencies $trans\]"
+    return $libname
+}
+
+# the exactly same procedure
+proc ::link::make_shobj {libname obj_expr \
+	{libspec undef} {flags_expr undef} {opt_expr undef} } \
+	[info body make_shlib]
+
+# create target for generating an executable 
+# * please note that flags_expr and options_expr will not be evaluated
+#   before inside the target command and inside the dependency check
+# * returns targetname (e.g. use as in "build [make_lib ...]")
+proc make_exe {exename obj_expr {local_lib undef} \
+	{libspec undef} {flags_expr undef} {opt_expr undef} } {
+
+    # some reasonable default values
+    if {$libspec == "undef"} { set libspec [::link::default_libspec exe] }
+    if {$flags_expr == "undef"} { set flags_expr {[::link::ld_flags]} }
+    if {$opt_expr == "undef"} { set opt_expr {[concat $::link::EXE_OPTIONS $::link::OPTIONS]} }
+
+    # generate target for lib, and add libspec as secondary dependencies
+    set trans "\[::link::libspec transitive [list $libspec] $opt_expr\]"
+
+    set rule {
+		set thelibs $trans
+		set opt $opt_expr
+		::\$\{link::LINKER\}::link_exe \
+			[file nativename \$TARGET] \
+			[lmap \$SRC {[list [file nativename \$ITEM]]}] \
+			\$thelibs [concat $flags_expr [join [join [::link::libspec flags \$thelibs]]]] \$opt
+    }
+ 
+    target $exename $obj_expr [subst -nocommands $rule]
+    depend $exename "\[::link::libspec dependencies $trans\]"
+    if {$local_lib != "undef"} {
+        depend $exename $local_lib
+    }
+
+    return $exename
+}   
+# create default libspec including (or not) the (existent?) local library
+proc default_libspec {args} {
+    if [lcontains $args "exe"] {
+	return [libspec create \
+		{[concat $::link::LIBPATH $::link::EXE_LIBPATH]} \
+		{[concat $::link::SYSLIBS $::link::EXE_SYSLIBS]} \
+		{[::link::default_exe_libs]} \
+		{$::link::LINK_MODE} \
+		{$::link::LIBFLAGS}]
+    } else {
+	return [libspec create \
+		{$::link::LIBPATH} \
+		{$::link::SYSLIBS} \
+		{[concat $::link::PROJLIBS $link::BASE_PROJLIBS]} \
+		{$::link::LINK_MODE} \
+		{$::link::LIBFLAGS}]
+    }
+}
+
+# if lib building is on and there are any library objects, add the local lib
+# -> this is executed at the very last moment
+proc default_exe_libs {} {
+    set libs [concat $::link::PROJLIBS $link::BASE_PROJLIBS $::link::EXE_PROJLIBS]
+    if {($::link::MAKE_LIB || $::link::MAKE_SHLIB) && [llength $::link::LIB_OBJ]} {
+		return [concat [list $::SUBDIR] $libs]
+    }
+    return $libs
+}
+
+# merges and returns generic and compiler-specific linker flags
+proc ld_flags {} {
+	set result [eval concat \$::link::FLAGS \$::${::link::LINKER}::LDFLAGS]
+	foreach {key value} [array get ::link::KEYED_FLAGS] {
+		lappend result $value
+	}
+	return $result
+}
+
+# ----------- begin 'main' ------------- 
+
+# create local libraries and executables
+eval_after {
+    
+    # default: make a local lib from all objects listed in LIB_OBJ
+	set local_libname [unique_lib_name $SUBDIR $DIRTAIL]
+	
+	set local_lib_dep ""
+    
+    # generate targets for building the libs
+    if $MAKE_LIB {
+	    build [make_lib [filename_lib $local_libname] {$::link::LIB_OBJ}]
+	    set local_lib_dep [filename_lib $local_libname]
+    }
+    if $MAKE_SHLIB {
+		if {[info exists ::link::LIBNAME]} {
+			build [make_shlib $::link::LIBNAME {$::link::LIB_OBJ}]
+			set local_lib_dep $::link::LIBNAME
+		} else {
+		    set local_lib_dep [filename_shlib $local_libname]
+			build [make_shlib [filename_shlib $local_libname] {$::link::LIB_OBJ}]
+	    }
+	}
+    
+    # use variables as late as possible, so all modules can add files to it
+    eval_after {
+		# initially, the actual linker implementation is set to "link",
+		# so the procedures within this namespace will be used. For
+		# actually linking lateron, the LINKER variable must be set to the
+		# namespace of some language/linker module, e.g. cxx or c
+		set_ifndef LINKER "link"
+
+		# determine object file for each exe file
+		set prog_pairs {}
+		foreach exe $PROGRAMS {
+		    switch [llength $exe] {
+				1 { set obj $exe }
+				2 { 
+					set obj [lindex $exe 1]
+			    	set exe [lindex $exe 0]
+				}
+				default {
+			    	exit_msg "syntax error in ::link::PROGRAMS: $PROGRAMS"
+				}
+		    }
+		    lappend prog_pairs [list [filename_exe $exe] [filename_obj $obj]]
+		}
+
+		# remove PROGRAMS object files from LIB_OBJ 
+		set LIB_OBJ [lminus $LIB_OBJ [lmap $prog_pairs {[lindex $ITEM 1]}]]
+
+		# if desired, link executables from files in $PROGRAMS
+		if $MAKE_EXE {
+		    # first we generate a list of rules
+		    set all_exe_tmp {}
+		    foreach pair $prog_pairs {
+				set exe [lindex $pair 0]
+				set obj [lindex $pair 1]
+				if {$MAKE_LIB || $MAKE_SHLIB} {
+			    	# link against local lib
+			    	lappend all_exe_tmp [make_exe $exe \{$obj\} $local_lib_dep]
+				} else {
+			    	# link local object files directly
+			    	lappend all_exe_tmp [make_exe $exe "\[concat $obj \$::link::LIB_OBJ\]"]
+				}
+		    }
+
+		    # now do all the remaining exe's 
+		    foreach e $all_exe_tmp {
+				build $e
+		    }
+		}
+	
+		# if we do not want to use a lib, we should at least build all the 
+		# object files
+		if { (!$MAKE_LIB) && (!$MAKE_SHLIB) } {
+		    build $LIB_OBJ
+		}
+    }
+
+}
+
+# dummy implementations of the actual linker commands
+proc link_dummy {cmd rest} {
+    puts stderr ">>> linker: $cmd $rest <<<"
+    set msg "must choose a linker implementation by setting link::LINKER to"
+    append msg "\n  the name of a compiler module (e.g. \"cxx::mipspro\")"
+    exit_msg $msg
+}
+proc link_lib   {args} {link_dummy link_lib   $args}
+proc link_shlib {args} {link_dummy link_shlib $args}
+proc link_exe   {args} {link_dummy link_exe   $args}
+

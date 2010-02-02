@@ -1,0 +1,16 @@
+# ====================================================================
+# determine directory for temporary system files
+# ====================================================================
+
+config set ::TMPDIR [file join ${::tmk::privateDir} tmp]
+foreach x {/usr/tmp /var/tmp /tmp} {
+    if [file isdirectory $x] {
+		config set ::TMPDIR $x 
+		break
+    }
+}
+if {![file exists $::TMPDIR]} {
+    if {![catch {file mkdir -force $::TMPDIR} msg]} {
+		dbg_msg "could not create temporary directory:\n  $msg"
+    }
+}

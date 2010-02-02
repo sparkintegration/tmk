@@ -1,0 +1,260 @@
+set_ifndef gcc_bin_prefix ""
+
+# try to find executables, so we don't need this in the site config
+switch $__module {
+    "cxx"     {catch {config set EXECUTABLE ${gcc_bin_prefix}g++ }}
+    "c"       {catch {config set EXECUTABLE ${gcc_bin_prefix}gcc }}
+    "default" {log_msg "warning: gcc is not configured for module $__module" }
+}
+
+catch {config set AR ${gcc_bin_prefix}ar}
+config set STRIP ${gcc_bin_prefix}strip
+
+# does this belong HERE?
+config variable ::${__module}::FLAGS 
+
+# default flags for g++ as well as for gcc
+config set FLAGS_PRF {-g3 -pg}
+set debugFlags {
+	-g -Wall -Wextra -Wno-missing-field-initializers -Wno-unused-parameter
+	-Wno-sign-compare -Wno-comment -Wno-unused  -Wno-unknown-pragmas -Werror
+}
+if {$__module == "cxx"} {
+	lappend debugFlags "-Wno-reorder"
+}
+config set FLAGS_DBG [concat $debugFlags]
+config set FLAGS_STD {-O}
+config set FLAGS_OPT {-O2}
+config set FLAGS_MAX {-O3 -finline-functions -funroll-loops -fexpensive-optimizations}
+
+# default flags if this compiler is used as the linker 
+config set LDFLAGS_PRF "-pg"
+config set LDFLAGS_DBG ""
+config set LDFLAGS_STD ""
+config set LDFLAGS_OPT ""
+config set LDFLAGS_MAX ""
+
+# flags for some of the meta compiler options
+config set METAOPT(nowarn)   "-wall"
+config set METAOPT(warn)     ""
+config set METAOPT(fullwarn) "-fullwarn"
+config set METAOPT(ansi)     "-ansi"
+config set METAOPT(stl)      "" 
+config set METAOPT(shared)   ""
+config set METAOPT(64bit)   "-n64"
+
+# with gcc we don't need an external makedepend
+config set EXPLICIT_MAKEDEPEND 0
+
+# return desired meta compiler options 
+config proc meta_option_flags {opt} {
+    variable METAOPT 
+    set result {}
+    foreach o $opt {
+		if [info exists METAOPT($o)] {
+	    	dbg_msg "meta option $o: flags $METAOPT($o)" 2
+	    	set result [concat $result $METAOPT($o)]
+		} else {
+	    	dbg_msg "no flags for meta option $o" 2
+		}
+    }
+    return $result
+}
+
+config proc preprocess {dest src flags opt} {
+	variable EXECUTABLE
+	
+	set flags [concat $flags [meta_option_flags $opt]]
+	set cmd [list "cmd_noexit" [file nativename $EXECUTABLE]]
+    set cmd [concat $cmd $flags]
+    lappend cmd  "-o" $dest "-E" $src
+    uplevel \#0 $cmd
+}
+
+# compile a source file (C or C++) 
+config proc compile_obj {obj src dep flags opt} {
+
+    variable EXECUTABLE
+
+    # convert filenames to native representation, and pay attention
+    #   attention that no argument is evaluated too often ('\' problem)!
+    set flags [concat $flags [meta_option_flags $opt]]
+	set cmd [list "cmd_noexit" [file nativename $EXECUTABLE] "-Wp,-MD,$dep"]
+    set cmd [concat $cmd $flags]
+    lappend cmd  "-o" $obj "-c" $src
+    uplevel \#0 $cmd
+}
+
+# only update dependency file, but do not compile
+config proc update_dependencies {obj src dep flags opt} {
+    variable EXECUTABLE
+    # convert filenames to native representation, and pay attention
+    #   attention that no argument is evaluated too often ('\' problem)!
+    if [file exists $dep] {file delete $dep}
+    set flags [concat $flags [meta_option_flags $opt]]
+    puts "updating dependencies for $obj"
+    set cmd [list "cmd_quiet" [file nativename $EXECUTABLE] "-M"]
+    lappend cmd "-Wp,-MG -Wp,-MD,$dep"
+    set cmd [concat $cmd $flags]
+    lappend cmd $src
+    uplevel \#0 $cmd
+    ### why no -o option? How does gcc know which is the target???
+}
+
+config proc extract_static_lib {lib} {
+	variable AR
+	set unpack [list cmd [file nativename $AR] x $lib]
+	uplevel \#0 $unpack
+}
+
+config proc static_lib_cmd {lib} {
+	variable AR
+	return [list cmd [file nativename $AR] r $lib]
+}
+
+# link a static lib
+config proc link_lib {lib obj libspec flags opt} {
+	# note that passed-in flags are ignored
+
+#    set libs  [make_lib_options $libspec $opt]
+    set cmd [static_lib_cmd $lib]
+    set cmd [concat $cmd $obj]
+	set liblist [get_lib_list $libspec]
+	set dir [file dirname $lib]
+	file mkdir [file join $dir __lib_temp__]
+	set currentdir [pwd]
+	cd [file join $dir __lib_temp__]
+	foreach xlib $liblist {
+		file mkdir [file tail $xlib]
+		cd [file tail $xlib]
+		extract_static_lib $xlib
+		foreach xobj [glob -nocomplain -- *.o] {
+			lappend cmd [file join [pwd] $xobj]
+		}
+		cd ..
+	}
+	cd $currentdir
+    uplevel \#0 $cmd
+	file delete -force -- [file join $dir __lib_temp__]
+    ### use libspec?
+}
+
+config proc shlib_additional_opts {} {
+	set result {-shared}
+	return $result
+}
+
+# link a shared lib
+config proc link_shlib {lib obj export_obj libspec flags opt} {
+    variable EXECUTABLE
+    if {$export_obj != {}} {
+		log_msg "warning (gcc): no support for interface subset export"
+    }
+
+	set flags [concat $flags [shlib_additional_opts]]
+
+    # needed?
+    if [lcontains $opt "soname"] {
+		lappend flags "-Wl,-soname=[file tail $lib]"
+    }
+    set flags [concat $flags [meta_option_flags $opt]]
+    set libs  [make_lib_options $libspec $opt]
+	set cmd [list "cmd" [file nativename $EXECUTABLE]]
+    set cmd [concat $cmd $flags [list "-o" $lib] $obj $libs]
+    uplevel \#0 $cmd
+
+	if [lcontains $opt "strip"] {
+		strip $lib
+    }
+}
+
+config proc exe_additional_opts {} {
+	set result {}
+	return $result
+}
+
+# link an executable
+config proc link_exe {prog obj libspec flags opt} {
+
+    set flags [concat $flags [meta_option_flags $opt]]
+    set libs  [make_lib_options $libspec $opt]
+
+	set flags [concat $flags [exe_additional_opts]]
+
+    variable EXECUTABLE
+	set cmd [concat [list cmd [file nativename $EXECUTABLE]] $flags]
+    set cmd [concat $cmd [list "-o" $prog] $obj $libs]
+    uplevel \#0 $cmd 
+
+	if [lcontains $opt "strip"] {
+		strip $prog
+    }
+}
+
+config proc strip {filepath} {
+	variable STRIP
+	set flags {-S -x}
+	set cmd [concat [list cmd [file nativename $STRIP]] $flags]	
+    set cmd [concat $cmd $filepath]
+    uplevel \#0 $cmd
+}
+
+# generate all flags for linking libs with what we are generating.
+# recognized options:
+# - rpath: store runtime linker paths in lib
+# - circular: resolve circular inter-lib symbol dependencies 
+# - twice: obsolete, should use "circular"
+config proc make_lib_options {libspec opt_expr} {
+
+    set paths {}
+    set libs  {}
+
+    # expand options expression, look for some of the options
+    eval set opt \[list $opt_expr\]
+    set circ [expr [lcontains $opt "circular"] || [lcontains $opt "twice"]]
+
+	# process pairs (dir shortname)
+	foreach lib [::link::libspec projlib_list $libspec] {
+
+		set dir  [lindex $lib 0]
+		set name [lindex $lib 1]
+		if {![file isdirectory $dir]} {
+	    	exit_msg "directory $dir does not exist."
+		}
+		lappend paths "-L[file nativename $dir]"
+		lappend libs "-l[file nativename ${name}]"
+    }
+
+    # lib path + sys libs
+    foreach dir [::link::libspec libpath $libspec] {
+		lappend paths "-L[file nativename $dir]" 
+    }
+    foreach lib [::link::libspec syslibs $libspec] {
+		lappend libs "-l[file nativename $lib]"
+    }
+    
+    # resolve circular inter-lib dependencies?
+    # well, we can't really do this, so we just put every lib twice
+    if {$circ && ([llength $libs] > 1)} {
+		return [concat $paths $libs $libs]
+    } else {
+		return [concat $paths $libs]
+    }
+}
+
+config proc get_lib_list {libspec} {
+	set libs {}
+	foreach lib [::link::libspec projlib_list $libspec] {
+
+		set dir  [lindex $lib 0]
+		set name [lindex $lib 1]
+		
+		if {![file isdirectory $dir]} {
+	    	exit_msg "directory $dir does not exist."
+		}
+		
+		lappend libs [file join $dir [filename_lib $name]]
+    }
+
+	return $libs
+}

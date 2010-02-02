@@ -1,0 +1,42 @@
+config proc filename_shlib  { shortname } { return "lib${shortname}.dylib" }
+
+config set __config_archs {i386}
+
+config set cxx::COMPILER  gccosx
+config set c::COMPILER    gccosx
+config set ::cxx::KEYED_FLAGS(visibility) -fvisibility=hidden
+
+config set swig::EXCLUDE_LANGS csharp
+
+config set swig::java::CFLAGS -I/System/Library/Frameworks/JavaVM.framework/Headers
+config set swig::java::LDFLAGS {-framework JavaVM}
+config proc swig::java::libname {basename} {
+	return lib$basename.jnilib
+}
+
+config set swig::python::CFLAGS -I/System/Library/Frameworks/Python.framework/Headers
+config set swig::python::LDFLAGS {-framework Python}
+config proc swig::python::libname {basename} {
+	return _$basename.so
+}
+
+config when_target arch=ppc {
+	config set __config_archs {ppc}
+}
+
+config when_target arch=ppc_x86 {
+	config set __config_archs {ppc i386}
+}
+
+config when_target arch=x86_64 {
+	config set __config_archs {i386 x86_64}
+}
+
+config when_target arch=iphone {
+	config set c::COMPILER    gccosxiphone
+	config set __config_archs {armv6}
+}
+
+config when_target arch=iphone-sim {
+	config set c::COMPILER    gccosxiphonesim
+}

@@ -1,0 +1,89 @@
+# no cross compilers for OS X yet
+
+# source gcc.tmk
+source [file join $::tmk::compilersConfigDir gcc.tmk]
+
+# set osx-specific flags
+set_ifndef base_CFLAGS {-Wnewline-eof -mmacosx-version-min=10.4 -headerpad_max_install_names -DMAC_OS_X_VERSION_MAX_ALLOWED=1040 -DMAC_OS_X_VERSION_MIN_REQUIRED=1040 -D__DARWIN_UNIX03=0}
+foreach flag {FLAGS_PRF FLAGS_DBG FLAGS_STD FLAGS_OPT FLAGS_MAX} {
+	config set $flag [concat $base_CFLAGS [set $flag]]
+}
+
+set_ifndef base_LDFLAGS {-mmacosx-version-min=10.4 -headerpad_max_install_names}
+foreach flag {LDFLAGS_PRF LDFLAGS_DBG LDFLAGS_STD LDFLAGS_OPT LDFLAGS_MAX} {
+	config set $flag [concat $base_LDFLAGS [set $flag]]
+}
+
+# compile a source file (C or C++) 
+config proc compile_obj {obj src dep flags opt} {
+
+    variable EXECUTABLE
+
+    # convert filenames to native representation, and pay attention
+    #   attention that no argument is evaluated too often ('\' problem)!
+    set flags [concat $flags [meta_option_flags $opt]]
+	foreach arch $::__config_archs {
+		lappend flags -arch $arch
+	}
+
+	set cmd [list "cmd_noexit" [file nativename $EXECUTABLE] "-Wp,-MD,$dep"]
+    set cmd [concat $cmd $flags]
+    lappend cmd  "-o" $obj "-c" $src
+    uplevel \#0 $cmd
+}
+
+config proc extract_static_lib {lib} {
+	if {[llength $::__config_archs] < 2} {
+		set unpack [list "cmd" "ar" "x" $lib]
+		uplevel \#0 $unpack
+	} else {
+		set dir [pwd]
+		
+		foreach arch $::__config_archs {
+			set archdir __lib_temp_$arch
+			file mkdir $archdir
+			set lipo [list cmd lipo $lib -thin $arch -output [file join $archdir [file tail $lib]]]
+			puts "cwd = [pwd]"
+			puts "!!! cmd = $lipo !!!"
+			uplevel \#0 $lipo
+			cd $archdir
+			set unpack [list "cmd" "ar" "x" [file tail $lib]]
+			uplevel \#0 $unpack
+			cd $dir
+		}
+		
+		set arch1 [lindex $::__config_archs 0]
+		cd __lib_temp_$arch1
+		set xobjs [glob -nocomplain -- *.o]
+		cd $dir
+		
+		foreach xobj $xobjs {
+			set joincmd [list cmd lipo -create -output $xobj]
+			foreach arch $::__config_archs {
+				lappend joincmd [file join __lib_temp_$arch $xobj]
+			}
+			uplevel \#0 $joincmd
+		}
+	}
+}
+
+config proc static_lib_cmd {lib} {
+	return [list cmd libtool -static -s -o $lib -]
+}
+
+config proc shlib_additional_opts {} {
+	set result {}
+	foreach arch $::__config_archs {
+		lappend result -arch $arch
+	}
+	lappend result -dynamiclib -current_version 1.0 -compatibility_version 1.0
+	return $result
+}
+
+config proc exe_additional_opts {} {
+	set result {}
+	foreach arch $::__config_archs {
+		lappend result -arch $arch
+	}
+	return $result
+}

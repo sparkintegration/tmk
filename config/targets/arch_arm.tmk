@@ -1,0 +1,1 @@
+config set c::COMPILER    arm_gcc

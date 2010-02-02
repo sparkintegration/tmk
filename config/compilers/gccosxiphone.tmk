@@ -1,0 +1,9 @@
+set base_CFLAGS {
+	-fpascal-strings -fasm-blocks -std=c99 -fvisibility=hidden
+	-isysroot /Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS2.1.sdk
+	-miphoneos-version-min=2.1 -gdwarf-2 -mthumb
+}
+set base_LDFLAGS {}
+
+# source gccosx.tmk
+source [file join $::tmk::compilersConfigDir gccosx.tmk]

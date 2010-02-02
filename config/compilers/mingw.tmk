@@ -1,0 +1,19 @@
+set gcc_bin_prefix i386-mingw32-
+
+# source gcc.tmk
+source [file join $::tmk::compilersConfigDir gcc.tmk]
+
+# set up for res module
+if {$__module == "res"} {
+    config set EXECUTABLE i386-mingw32-windres
+}
+
+set base_CFLAGS { -mthreads -DWINVER=0x0550 }
+foreach flag {FLAGS_PRF FLAGS_DBG FLAGS_STD FLAGS_OPT FLAGS_MAX} {
+	config set $flag [concat $base_CFLAGS [set $flag]]
+}
+
+set base_LDFLAGS {-mthreads}
+foreach flag {LDFLAGS_PRF LDFLAGS_DBG LDFLAGS_STD LDFLAGS_OPT LDFLAGS_MAX} {
+	config set $flag [concat $base_LDFLAGS [set $flag]]
+}

@@ -1,0 +1,84 @@
+#	Title: VCS Module
+#
+# =========================================================================
+#
+# 		TMK module for interacting with version control systems
+# =========================================================================
+
+#	Variable: TYPE
+#		The type of vcs to use
+set_ifndef TYPE	"svn"
+
+set_ifndef BUILD_DIR [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
+
+set_ifndef __updated_any 0
+set_ifndef __gotRevisions 0
+array set __oldRevisions {}
+array set __revisions {}
+
+proc __get_revisions {} {
+	set revFileName [file join [tmk_output_dir] __vcs_revisions__]
+	if [file exists $revFileName] {
+		::tmk::source $revFileName
+	}
+}
+
+proc __write_revisions {} {
+	set revFile [open [file join [tmk_output_dir] __vcs_revisions__] w]
+	puts $revFile "array set ::vcs::__oldRevisions {[array get ::vcs::__revisions]}"
+	close $revFile
+}
+
+if {!$__gotRevisions} {
+	__get_revisions
+}
+
+proc updated_any {} {
+	return $::vcs::__updated_any
+}
+
+proc export {repo_path local_path include_filter} {
+	set path $vcs::REPOSITORY$repo_path
+	set outputDir [file join $vcs::BUILD_DIR $local_path]
+	set rev [get_update_revision $path]
+	if {[info exists ::vcs::__oldRevisions($path)] && $::vcs::__oldRevisions($path) >= $rev && [file exists $outputDir]} {
+		set ::vcs::__revisions($path) $::vcs::__oldRevisions($path)
+		log_msg "No new revision for $path"
+		return 0
+	}
+	
+	file mkdir $outputDir
+	cmd $vcs::TYPE export -r $rev --force $path $outputDir
+	foreach filter $include_filter {
+		cmd find $outputDir -type f -not -name "$filter" -delete
+	}
+	
+	set rev [get_revision $path]
+	set ::vcs::__revisions($path) $rev
+	
+	__write_revisions
+	set ::vcs::__updated_any 1
+	return 1
+}
+
+proc get_revision {path} {
+	set rev [exec svn info $path | grep Revision | awk {{ print $2; }}]
+	return $rev
+}
+
+proc get_update_revision {path} {
+	set rev [exec svn info $path | grep {Last Changed Rev} | awk {{ print $4; }}]
+	return $rev
+}
+
+proc get_branch {path} {
+	set base_url [exec svn info $path | grep {Repository Root} | awk {{ print $3; }}]
+	set path_url [exec svn info $path | grep {URL} | awk {{ print $2; }}]
+	set branch_elements [split [string map [list $base_url ""] $path_url] "/"]
+	if {[lindex $branch_elements 2] eq "trunk"} {
+		set branch [join [lrange $branch_elements 1 2] "/"]
+	} else {
+		set branch [join [lrange $branch_elements 1 3] "/"]
+	}
+	return "$branch/"
+}

@@ -1,0 +1,97 @@
+set_ifndef ::swig::EXCLUDE_LANGS {}
+set_ifndef ::swig::JAVA_PACKAGE ""
+
+array set ::swig::COPY_DESTS {}
+
+array set ::swig::PATTERNS {}
+set ::swig::PATTERNS(java) {*.java}
+set ::swig::PATTERNS(python) {*.py}
+set ::swig::PATTERNS(csharp) {*.cs}
+
+proc java_package {package} {
+	set ::swig::JAVA_PACKAGE $package
+}
+
+proc swig_target {langs files} {
+	
+	if {![info exists c::COMPILER]} {
+		puts "!!! Not loading swig module since there is no C compiler for this OS/architecture"
+		return
+	}
+
+	foreach lang $langs {
+		if {[lcontains $::swig::EXCLUDE_LANGS $lang]} {
+			continue
+		}
+		set_ifndef ::swig::${lang}::CFLAGS {}
+		set_ifndef ::swig::${lang}::LDFLAGS {}
+		set_ifndef ::swig::${lang}::LIBPATH {}
+		set_ifndef ::swig::${lang}::LIBS {}
+		
+		foreach file $files {
+			
+			eval set flags \$::swig::${lang}::CFLAGS
+			eval set libs \$::swig::${lang}::LIBS
+			eval set libpaths \$::swig::${lang}::LIBPATH
+			eval set ldflags \$::swig::${lang}::LDFLAGS
+			set link_ldflags [::link::ld_flags]
+			
+			foreach flag $ldflags {
+			    lappend link_ldflags $flag
+			}
+			
+			set swigflags {}
+			foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+				lappend swigflags -I$dir
+		    }
+
+			if {$lang == "java" && $::swig::JAVA_PACKAGE != ""} {
+				lappend swigflags -package
+				lappend swigflags $::swig::JAVA_PACKAGE
+			}
+			
+			if {$lang == "python"} {
+				lappend swigflags -threads
+			}
+			
+			set rule { cmd $::swig::SWIG -$lang $swigflags -o [file join [tmk_output_dir] $lang ${file}_wrap_$lang.c] ${file}.i }
+			target ${lang}/${file}_wrap_$lang.c $file.i [subst -nocommands $rule]
+			
+			set cflags [::c::default_flags]
+			foreach flag $flags {
+				lappend cflags $flag
+			}
+			lappend cflags -I[pwd]
+			foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+				lappend cflags -I$dir
+		    }
+			lremove cflags -Werror ;# required to build Python 2.5 stuff
+			::c::make_obj ${lang}/${file}_wrap_$lang.c {} [subst {{$cflags}}] undef
+			
+			set def_libspec [::link::default_libspec]
+			set additional_libspec [::link::libspec create \{$libpaths\} \{$libs\} \{\} \{\}]
+			
+			set libtarget [::link::make_shlib $lang/[::swig::${lang}::libname $file] [subst {${file}.o ${lang}/${file}_wrap_$lang.o}] \
+				[::link::libspec merge $def_libspec $additional_libspec] [subst {{$link_ldflags}}] undef]
+				
+			build $libtarget
+			
+			set dests {}
+			if {[info exists ::swig::COPY_DESTS($lang)]} {
+			    set dests $::swig::COPY_DESTS($lang)
+			}
+			
+			set copyrule {
+			    foreach dest {$dests} {
+			        eval file mkdir \$dest
+			        eval file copy -force -- [file join [tmk_output_dir] $lang [::swig::${lang}::libname $file]] \$dest
+			        eval file copy -force -- [glob -nocomplain -directory [file join [tmk_output_dir] $lang] -- \
+						$::swig::PATTERNS($lang)] \$dest
+			    }
+			}
+			
+			target copylib_$lang $libtarget [subst -nocommands $copyrule]
+			build copylib_$lang
+		}
+	}
+}

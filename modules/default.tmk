@@ -1,0 +1,195 @@
+# -*-Mode: tcl -*-
+
+set_ifndef ::PROJ_LOCATIONS {}
+set_ifndef ::CLEAN_PATTERNS {}
+set_ifndef ::SUBDIR_EXCLUDE {CVS RCS SCCS}  
+set_ifndef ::DEPEND_EXCLUDE {/usr/include/* /opt/*} 
+
+# some handy submodules
+module grep
+
+# return list of prerequisites from the given file, or "ALWAYS_BUILD"
+#   if there is no dependency file. Usually, this is called very late,
+#   e.g. while checking a target.
+proc ::read_dependencies {target depfile} {
+    # check if file is there
+    if {![file readable $depfile]} {
+	dbg_msg "no dependency file $depfile for $target" 
+	return "ALWAYS_BUILD"
+    }
+    dbg_msg "reading dependency file $depfile for $target" 
+    set txt {}
+    read_file $depfile txt
+
+    # process each line separately 
+    set txt [split $txt "\n"]
+	
+    # join lines separeted by '\'
+    set newtxt {}
+    set actline ""
+    foreach line $txt {
+	set l [expr [string length $line] - 1]
+	set c [string index $line $l]
+	if { $c == "\\" } {
+	    set actline "$actline [string range $line 0 [expr $l - 1]]"
+	} else {
+	    append actline $line
+	    lappend newtxt $actline
+	    set actline ""
+	}
+    }
+    if { $actline != "" } {
+	dbg_msg "warning: something's strange in $depfile"
+	append newtxt $actline
+    }
+    
+    # convert path (from Win '\' style to '/' unix style)
+    if {$::OSCLASS == "Windows"} { 
+	regsub -all \\\\ $newtxt / newtxt
+    }
+
+    set result {}
+    foreach line $newtxt {
+	
+	# remove everything behind a comment
+	set p [string first "\#" $line]
+	if { $p != -1 } {
+	    set line [string range $line 0 [expr $p - 1]]
+	}
+	# line has format "target: dep1 dep2 dep3 dep4 ..."
+	if [llength $line] {
+	    set targ [lindex $line 0]
+	    set lastchar [expr [string length $targ] - 1]
+	    if {"[string index $targ $lastchar]" != ":"} {
+		exit_msg "unexpected format in $depfile:\n  \[$line\]"
+	    } 
+	    
+	    
+	    set targ [string range $targ 0 [expr $lastchar - 1]]
+	    if [string compare [targetname_short $targ]\
+		    [targetname_short $target]] {
+		dbg_msg "warning: target in $depfile is $targ, not $target"
+	    } else {
+		eval lappend result [lrange $line 1 end]
+	    }
+	}
+    }
+
+    return $result
+}
+
+
+
+# find the first file name match which is somewhere in the proj_locations
+#    or return ""
+proc ::find_proj_file {file_pattern} {
+    
+    return [lindex [find_proj_files $file_pattern] 0]
+
+}
+proc ::find_proj_files {file_pattern} {
+    
+    global PROJ_LOCATIONS PROJROOT
+    set paths [concat $PROJROOT $PROJ_LOCATIONS]
+    return [find_in_pathlist $file_pattern $paths]
+
+}
+
+# remove the project root dir from an absolute path
+proc ::remove_projroot {path} {
+    global PROJROOT PROJ_LOCATIONS
+
+    foreach root [concat $PROJROOT $PROJ_LOCATIONS] {
+	if { [string first $root $path] == 0 } {
+	    return [string range $path [expr [string length $root] + 1] end]
+	}
+    }
+    log_msg "warning: could not remove project root dir from \[$path\]"
+    log_msg "         (tried: [concat $PROJROOT $PROJ_LOCATIONS])"
+    return $path
+}
+
+# copy files if the source files are newer
+# - target may either be a directory name or a pair (dir filename)
+# - if the source file name is relative, it is assumed to be project-relative
+#   (<project_name>/<subdir>/...), and will be searched using find_proj_file
+# widlcards may be used in the "sources" expression
+proc ::copy_files {target sources} {
+
+    foreach src $sources {
+	
+	# only target dir specified, or dir + filename?
+	if {[llength $target] == 1} {
+	    set dir $target
+	    set file [file tail $src]
+	} else {
+	    set dir [lindex $target 0]
+	    set file [lindex $target 1]
+	}
+
+	# relative path -> look up in PROJ_LOCATIONS and PROJROOT
+	if {[file pathtype $src] == "relative"} {
+
+	    set rule {
+		if {$SRC == {}} {
+		    exit_msg "could not find file(s) ${src} in project path"
+		}
+		puts "copying $SRC -> $TARGET"
+		file copy -force -- $SRC $TARGET
+	    }
+	    regsub -all {\$\{src\}} $rule $src rule
+	    build [target $dir/$file "\[find_linked_file \
+                    \[find_proj_file $src\]\]" $rule]
+	} else {
+
+	    build [target $dir/$file "\[find_linked_file $src\]" {
+		puts "copying $SRC -> $TARGET"
+		file copy -force -- $SRC $TARGET
+	    }]
+
+	}
+	
+    }
+}
+
+# find the 'real' file behind a link
+proc ::find_linked_file {link} {
+    if {$link == {}} {
+	return {}
+    }
+    if {[file type $link] == "link"} {
+	set f [file readlink $link]
+	if {[file pathtype $f] != "absolute"} {
+	    set f [file join [file dirname $link] $f]
+	}
+	return [find_linked_file $f]
+    } else {
+	if [file exists $link] {
+	    return $link
+	} else {
+	    exit_msg "link points to a non-existing file: $link"
+	}
+    }
+}
+
+
+# =============================================================================
+# some default targets
+# =============================================================================
+
+eval_after {
+
+    # cleaning up -------------------------------------------------------------
+	target clean ALWAYS_BUILD {
+	    echo file delete -force -- [tmk_output_dir] $CLEAN_PATTERNS
+	}
+	
+    # pseudo target for updating dependencies; 
+    # the language modules must define prerequisites to this for actually 
+    #   updating the dependency files
+    target depend ALWAYS_BUILD {
+	dbg_msg "dependency update finished for $SUBDIR"
+    }
+
+}
+

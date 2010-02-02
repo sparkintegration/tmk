@@ -1,0 +1,13 @@
+config proc filename_shlib  { shortname } { return "lib${shortname}.so" }
+
+config set cxx::COMPILER  osx_qnx
+config set c::COMPILER    osx_qnx 
+
+# no java on qnx
+config set swig::EXCLUDE_LANGS {java csharp}
+
+config set swig::python::CFLAGS {-I/cross/qnx/target/usr/include/python-include}
+config set swig::python::LDFLAGS {}
+config proc swig::python::libname {basename} {
+	return _$basename.so
+}

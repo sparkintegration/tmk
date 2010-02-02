@@ -1,0 +1,21 @@
+set link::MAKE_LIB 0
+set link::MAKE_SHLIB 1
+
+#set ::link::LIBNAME [::filename_shlib sharedlib]
+when_target os=mswin {
+	lappend ::ARGS -D
+	lappend ::ARGS BUILDING_DLL=true
+	lappend cxx::FLAGS -DBUILDING_DLL
+	set link::FLAGS -Wl,--output-def,[file join [tmk_output_dir] sharedlib.def]
+}
+
+when_target os=osx {
+	set ::cxx::KEYED_FLAGS(visibility) -fvisibility=default
+}
+
+proc setLibName {name} {
+	set ::link::LIBNAME [::filename_shlib $name]
+	when_target os=mswin {
+		set link::FLAGS -Wl,--output-def,[file join [tmk_output_dir] ${name}.def]
+	}
+}

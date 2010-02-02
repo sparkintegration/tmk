@@ -1,0 +1,35 @@
+# OS X to AVR cross compiler setup
+set gcc_bin_prefix avr-
+
+# source gcc.tmk
+source [file join $::tmk::compilersConfigDir gcc.tmk]
+
+config set FLAGS_STD "-O -Os -ffunction-sections -fdata-sections -DNDEBUG"
+config set FLAGS_OPT "-O2 -Os -ffunction-sections -fdata-sections -DNDEBUG"
+config set FLAGS_MAX "-O3 -Os -ffunction-sections -fdata-sections -DNDEBUG"
+
+set base_LDFLAGS {-Wl,--gc-sections}
+foreach flag {LDFLAGS_PRF LDFLAGS_DBG LDFLAGS_STD LDFLAGS_OPT LDFLAGS_MAX} {
+	config set $flag [concat $base_LDFLAGS [set $flag]]
+}
+
+# link an executable
+config proc link_exe {prog obj libspec flags opt} {
+
+    set flags [concat $flags [meta_option_flags $opt]]
+    set libs  [make_lib_options $libspec $opt]
+
+	set flags [concat $flags [exe_additional_opts]]
+
+    variable EXECUTABLE
+	set cmd [concat [list cmd [file nativename $EXECUTABLE]] $flags]
+    set cmd [concat $cmd [list "-o" $prog] $obj $libs]
+    uplevel \#0 $cmd 
+
+	if [lcontains $opt "strip"] {
+		strip $prog
+    }
+
+	uplevel \#0 [list cmd avr-objcopy -O ihex $prog $prog.hex]
+	uplevel \#0 [list cmd avr-size --target=ihex $prog.hex]
+}

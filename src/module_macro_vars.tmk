@@ -1,0 +1,62 @@
+set ::tmk::MODULE_ACTION(LDFLAGS) {
+    dbg_msg "adding \[$LDFLAGS\] to link::FLAGS" 2
+	lappend ::link::LIBFLAGS [list $LDFLAGS]
+}
+
+set ::tmk::MODULE_ACTION(CXXFLAGS) {
+    dbg_msg "adding \[$CXXFLAGS\] to cxx::FLAGS" 2
+    foreach __d $CXXFLAGS {
+	lappend ::cxx::FLAGS $__d
+    }
+}
+
+set ::tmk::MODULE_ACTION(CFLAGS) {
+    dbg_msg "adding \[$CFLAGS\] to c::FLAGS" 2
+    foreach __d $CFLAGS {
+	lappend ::c::FLAGS $__d
+    }
+}
+
+set ::tmk::MODULE_ACTION(DEFS) {
+    dbg_msg "defining \[$DEFS\] for C/C++" 2
+    foreach __d $DEFS {
+	lappend ::c::FLAGS   -D$__d
+	lappend ::cxx::FLAGS -D$__d
+    }
+}
+
+set ::tmk::MODULE_ACTION(DEPEND) {
+    dbg_msg "module $__MODNAME depends on \[$DEPEND\]" 2
+    module $DEPEND
+}
+
+set ::tmk::MODULE_ACTION(INCPATH) {
+    foreach __d $INCPATH {
+	dbg_msg "adding $__d to c/cxx include path" 2
+	lappend ::cxx::FLAGS -I$__d 
+	lappend ::c::FLAGS   -I$__d
+    }
+}
+
+set ::tmk::MODULE_ACTION(RESPATH) {
+    foreach __d $RESPATH {
+	dbg_msg "adding $__d to res include path" 2
+	lappend ::res::FLAGS -I$__d 
+    }
+}
+
+set ::tmk::MODULE_ACTION(LIBPATH) {
+    foreach __d $LIBPATH {
+	dbg_msg "appending $__d to link::LIBPATH" 2
+	# lappend ::link::LIBPATH $__d
+	set ::link::LIBPATH [ concat $__d $::link::LIBPATH ]
+    }
+}
+
+set ::tmk::MODULE_ACTION(LIBS) {
+    foreach __d $LIBS {
+	dbg_msg "appending $__d to link::SYSLIBS" 2
+	# lappend ::link::SYSLIBS $__d
+	set ::link::SYSLIBS [ concat $__d $::link::SYSLIBS ]
+    }
+}

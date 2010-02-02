@@ -1,0 +1,35 @@
+config proc filename_shlib  { shortname } { return "${shortname}.dll" }
+config proc filename_lib { shortname } { return "${shortname}.lib" }
+
+config set swig::EXCLUDE_LANGS {}
+
+config set swig::java::CFLAGS {-I/cross/win32/include/java-include -I/cross/win32/include/java-include/win32 -D_JNI_IMPLEMENTATION_}
+config set swig::java::LDFLAGS {-Wl,--kill-at}
+config proc swig::java::libname {basename} {
+	return $basename.dll
+}
+
+config set swig::python::CFLAGS -I/cross/win32/include/python-include
+config set swig::python::LDFLAGS {}
+config set swig::python::LIBPATH {/cross/win32/lib/python-libs}
+config set swig::python::LIBS {python25}
+config proc swig::python::libname {basename} {
+	return _$basename.pyd
+}
+
+config set swig::csharp::CFLAGS {}
+config set swig::csharp::LDFLAGS {-mthreads -Wl,--add-stdcall-alias}
+
+config proc swig::csharp::libname {basename} {
+	return $basename.dll
+}
+
+config set cxx::COMPILER  mingw
+config set c::COMPILER    mingw
+config set res::COMPILER  mingw
+
+namespace eval random {
+	config set LIBS { advapi32 }
+}
+
+config proc filename_exe { shortname } { return "${shortname}.exe" }

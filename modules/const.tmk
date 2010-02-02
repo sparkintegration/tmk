@@ -1,0 +1,352 @@
+#	Title: Constant Module
+#
+# ===========================================================================
+#		Generates language-specific files from a generic constant definition
+# ===========================================================================
+
+#	Variable: LANGUAGES
+#		Specifies the language(s) to generate for
+set_ifndef LANGUAGES { c }
+
+#	Variable: SUFFIX
+#		The file extension for constant definition files
+set_ifndef SUFFIX .cdl
+
+set ITEMS {}
+
+proc br_handler {} {
+	lappend const::ITEMS [list br]
+}
+
+proc descr_handler { text } {
+	lappend const::ITEMS [list descr $text]
+}
+
+proc prefix_handler { pre } {
+	lappend const::ITEMS [list prefix $pre]
+}
+
+proc def_handler { name {value ""} } {
+	lappend const::ITEMS [list def $name $value]
+}
+
+proc defs_handler { name {value ""} } {
+	lappend const::ITEMS [list defs $name $value]
+}
+
+proc enum_handler { name entries } {
+	lappend const::ITEMS [list enum $name $entries]
+}
+
+proc const_handler { ctype name value } {
+	lappend const::ITEMS [list const $name $ctype $value]
+}
+
+proc consts_handler { ctype name value } {
+	lappend const::ITEMS [list consts $name $ctype $value]
+}
+
+proc preprocess { cdlFile } {
+	read_file $cdlFile cdl
+	return $cdl
+}
+
+proc process { cdl } {
+	interp create -safe cdlParser
+	cdlParser alias br const::br_handler
+	cdlParser alias descr const::descr_handler
+	cdlParser alias prefix const::prefix_handler
+	cdlParser alias def const::def_handler
+	cdlParser alias defs const::defs_handler
+	cdlParser alias enum const::enum_handler
+	cdlParser alias const const::const_handler
+	cdlParser alias consts const::consts_handler
+	
+	# evaluate the CDL
+	cdlParser eval $cdl
+	
+	interp delete cdlParser
+}
+
+proc make_target { cdlFile outFile output lang } {
+	set rule {
+		puts "Generating ${lang} constants file from ${cdlFile}...."
+		set origdir [pwd]
+		cd \$::PROJROOT/\$::SUBDIR
+
+		set out [open \$TARGET "w"]
+		puts \$out "$output"
+		close \$out
+
+		cd \$origdir
+		puts "Done."
+	}
+	target $outFile $cdlFile [subst -nocommands $rule]
+	build $outFile
+}
+
+proc guardname { fileName } {
+	return [string toupper [join [split $fileName "\\/."] "_"]]
+}
+
+proc put_br { str } {
+	upvar $str out
+	set out "${out}\n"
+}
+
+proc put_cxx_descr { str text } {
+	upvar $str out
+	set out "${out}/* ${text} */\n"
+}
+
+proc put_cxx_def { str prefix name value } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	if [string is upper [regsub -all -- {[0-9_]} $name ""]] {
+		set transName "[string toupper $prefix]${name}"
+	} else {
+		set transName "c_${prefix}${name}"
+	}
+	
+	if { $value == "" } {
+		set out "${out}#define ${transName}\n"
+	} else {
+		set out "${out}#define ${transName}\t${value}\n"
+	}
+}
+
+proc put_cxx_enum { str prefix name entries } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	set enumName "${prefix}${name}"
+	set out "${out}enum ${enumName}\n{\n"
+	
+	set end [expr [llength $entries] - 1]
+	set i 0
+	foreach entry $entries {
+		set out "${out}\te_${enumName}_[lindex $entry 0]"
+		if { [lindex $entry 1] != "" } {
+			set out "${out}\t= [lindex $entry 1]"
+		}
+		if { $i < $end } {
+			set out "${out},\n"
+		} else {
+			set out "${out}\n"
+		}
+		incr i
+	}
+	
+	set out "${out}};\n"
+}
+
+proc put_cxx_const { str prefix name ctype value } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	set constName "c_${prefix}${name}"
+	set out "${out}const ${ctype} ${constName} = ${value};\n"
+}
+
+proc generate_cxx { cdlFile outFile } {
+	set guard [guardname $outFile]
+	set outString "/******************************************************************************
+ *	AUTOMATICALLY GENERATED FILE
+ *
+ *	Constant definitions generated from ${cdlFile} on
+ *	[timestamp]
+ *****************************************************************************/
+#ifndef ${guard}
+#define ${guard}
+
+"
+	
+	set prefix ""
+	foreach item $const::ITEMS {
+		switch [lindex $item 0] {
+			"br"		{ put_br outString }
+			"prefix"	{ set prefix [lindex $item 1] }
+			"descr"		{ put_cxx_descr outString [lindex $item 1] }
+			"def"		{ put_cxx_def outString $prefix [lindex $item 1] [lindex $item 2] }
+			"defs"		{ put_cxx_def outString $prefix [lindex $item 1] \\\"[lindex $item 2]\\\" }
+			"enum"		{ put_cxx_enum outString $prefix [lindex $item 1] [lindex $item 2] }
+			"const"		{ put_cxx_const outString $prefix [lindex $item 1] [lindex $item 2] [lindex $item 3] }
+			"consts"	{ put_cxx_const outString $prefix [lindex $item 1] [lindex $item 2] \\\"[lindex $item 3]\\\" }
+		}
+	}
+	
+	set outString "${outString}
+#endif	/* ${guard} */"
+
+	make_target $cdlFile $outFile $outString "C/C++"
+}
+
+proc put_lua_descr { str text } {
+	upvar $str out
+	set out "${out}--\\\[\\\[ ${text} ]]\n"
+}
+
+proc put_lua_def { str prefix name value } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	if [string is upper [regsub -all -- {[0-9_]} $name ""]] {
+		set transName "[string toupper $prefix]${name}"
+	} else {
+		set transName "c_${prefix}${name}"
+	}
+	
+	if { $value == "" } {
+		set value 1
+	}
+	set out "${out}${transName}\t= ${value}\n"
+}
+
+proc put_lua_enum { str prefix name entries } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	set enumName "e_${prefix}${name}"
+	set out "${out}enum.${enumName}{\n"
+	
+	foreach entry $entries {
+		set out "${out}\t{'[lindex $entry 0]'"
+		if { [lindex $entry 1] != "" } {
+			set out "${out},\t[lindex $entry 1]"
+		}
+		set out "${out}},\n"
+	}
+	
+	set out "${out}}\n"
+}
+
+proc generate_lua { cdlFile outFile } {
+	set outString "-------------------------------------------------------------------------------
+--	AUTOMATICALLY GENERATED FILE
+--
+--	Constant definitions generated from ${cdlFile} on
+--	[timestamp]
+-------------------------------------------------------------------------------
+"
+	# determine if there are any enums (to require the correct module)
+	foreach item $const::ITEMS {
+		if { [lindex $item 0] == "enum" } {
+			set outString "${outString}require 'Distrix.Types.Enumeration'
+local enum = Distrix.Types.Enumeration.enum\n\n"
+			break
+		}
+	}
+	
+	set modName [file rootname [file tail $cdlFile]]
+	set outString "${outString}module '${modName}Definitions'\n\n"
+	
+	set prefix ""
+	foreach item $const::ITEMS {
+		switch [lindex $item 0] {
+			"br"		{ put_br outString }
+			"prefix"	{ set prefix [lindex $item 1] }
+			"descr"		{ put_lua_descr outString [lindex $item 1] }
+			"def"		{ put_lua_def outString $prefix [lindex $item 1] [lindex $item 2] }
+			"defs"		{ put_lua_def outString $prefix [lindex $item 1] \\\"[lindex $item 2]\\\" }
+			"enum"		{ put_lua_enum outString $prefix [lindex $item 1] [lindex $item 2] }
+			"const"		{ put_lua_def outString $prefix [lindex $item 1] [lindex $item 3] }
+			"consts"	{ put_lua_def outString $prefix [lindex $item 1] \\\"[lindex $item 3]\\\" }
+		}
+	}
+
+	make_target $cdlFile $outFile $outString "Lua"
+}
+
+proc put_python_descr { str text } {
+	upvar $str out
+	set out "${out}# ${text}\n"
+}
+
+proc put_python_def { str prefix name value } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	if [string is upper [regsub -all -- {[0-9_]} $name ""]] {
+		set transName "[string toupper $prefix]${name}"
+	} else {
+		set transName "c_${prefix}${name}"
+	}
+	
+	if { $value == "" } {
+		set value 1
+	}
+	set out "${out}${transName}\t= ${value}\n"
+}
+
+# TODO: Doesn't currently support specified values for enums
+proc put_python_enum { str prefix name entries } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	
+	set out "${out}[join $entries ", "] = range([llength $entries])\n"
+	
+}
+
+proc generate_python { cdlFile outFile } {
+	set outString "
+# AUTOMATICALLY GENERATED FILE
+
+# Constant definitions generated from ${cdlFile} on
+# [timestamp]
+"	
+	set modName [file rootname [file tail $cdlFile]]
+	
+	set prefix ""
+	foreach item $const::ITEMS {
+		switch [lindex $item 0] {
+			"br"		{ put_br outString }
+			"prefix"	{ set prefix [lindex $item 1] }
+			"descr"		{ put_python_descr outString [lindex $item 1] }
+			"def"		{ put_python_def outString $prefix [lindex $item 1] [lindex $item 2] }
+			"defs"		{ put_python_def outString $prefix [lindex $item 1] \\\"[lindex $item 2]\\\" }
+			"enum"		{ put_python_enum outString $prefix [lindex $item 1] [lindex $item 2] }
+			"const"		{ put_python_def outString $prefix [lindex $item 1] [lindex $item 3] }
+			"consts"	{ put_python_def outString $prefix [lindex $item 1] \\\"[lindex $item 3]\\\" }
+		}
+	}
+	
+	make_target $cdlFile $outFile $outString "Python"
+}
+
+proc generate { cdlFile lang } {
+	set outFileBase [file rootname $cdlFile]
+	
+	switch $lang {
+		"c"		-
+		"cxx"	{ generate_cxx $cdlFile "${outFileBase}.h" }
+		"lua"	{ generate_lua $cdlFile "${outFileBase}.lua" }
+		"python" { generate_python $cdlFile "${outFileBase}.py" }
+		default	{ exit_msg "Unknown language in const module: ${lang}" }
+	}
+}
+
+# --------------
+#	begin main 
+# --------------
+eval_after {
+	if { ![tmk::cleaning] } {
+		foreach src [glob -nocomplain *$const::SUFFIX] {
+			set const::ITEMS {}
+			set cdl [const::preprocess $src]
+			const::process $cdl
+			
+			foreach lang $const::LANGUAGES {
+				const::generate $src $lang
+			}
+		}
+	}
+}

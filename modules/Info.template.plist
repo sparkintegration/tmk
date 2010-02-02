@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+
+    <dict>
+        <key>CFBundleName</key>                     <string>%SHORT_NAME%</string>
+        <key>CFBundleDevelopmentRegion</key>        <string>English</string>
+        <key>CFBundleDisplayName</key>              <string>%DISP_NAME%</string>
+        <key>CFBundleExecutable</key>               <string>%EXE_NAME%</string>
+        <key>CFBundleInfoString</key>               <string>%DESCRIPTION%</string>
+        <key>CFBundleIconFile</key>                 <string>%ICON%</string>
+        <key>CFBundleIdentifier</key>               <string>com.sparkrobotics.%SHORT_NAME%</string>
+        <key>CFBundleInfoDictionaryVersion</key>    <string>6.0</string>
+        <key>CFBundlePackageType</key>              <string>APPL</string>
+        <key>CFBundleShortVersionString</key>       <string>%VERSION%</string>
+        <key>CFBundleSignature</key>                <string>%SIGNATURE%</string>
+        <key>CFBundleVersion</key>                  <string>%INTERNAL_VERSION%</string>
+        <key>NSAppleScriptEnabled</key>             <string>NO</string>
+        <key>NSPrincipalClass</key>                 <string>NSApplication</string>
+        <key>NSHumanReadableCopyright</key>         <string>© %YEAR% Spark Robotics Technology Inc.</string>
+        <key>LSHasLocalizedDisplayName</key>        <string>NO</string>
+    </dict>
+
+</plist>

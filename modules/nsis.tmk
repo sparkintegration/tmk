@@ -1,0 +1,67 @@
+#	Variable: MAKENSIS
+#		The `makensis` executable to compile the installer with
+set_ifndef MAKENSIS	makensis
+#	Variable: FLAGS
+#		Extra flags to pass to the NSIS compiler
+set_ifndef FLAGS	"-V4"
+#	Variable: SUFFIX
+#		The file extension for NSIS scripts to be compiled into installers
+set_ifndef SUFFIX	.nsi
+#	Variable: DETECT
+#		Automatically detect NSIS files
+set_ifndef DETECT	1
+
+#	Variable: NSIS_INCLUDES
+#		Additional include directories
+set_ifndef NSIS_INCLUDES {}
+
+set_ifndef BUILD_DIR [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
+
+proc default_flags {} {
+    global ::nsis::FLAGS 
+	set result $::nsis::FLAGS
+	foreach {key value} [array get ::nsis::DEFINES] {
+		lappend result "-D$key=$value"
+	}
+    return $result
+}
+
+proc make_installer {nsifile {installer {}}} {
+    if {$installer == {}} {
+		set installer "[file rootname ${nsifile}].exe"
+    }
+
+	set outfile [file join $nsis::BUILD_DIR $installer]
+	set flags [join [::nsis::default_flags] " "]
+	set short_builddir [tmk_output_dir]
+	set rule {
+		set cmd [list cmd $nsis::MAKENSIS -DBUILD_DIR=$short_builddir -DPROJROOT=$::PROJROOT $flags "-XOutFile ${outfile}" $nsifile]
+		uplevel \#0 \$cmd
+	}
+	target $installer $nsifile [subst -nocommands $rule]
+	build $installer
+	
+}
+    
+eval_after {
+    if $nsis::DETECT {
+		foreach file [glob -nocomplain *$SUFFIX] {
+	    	nsis::make_installer $file
+		}
+    }
+
+	foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+		lappend FLAGS -X\"\!addincludedir ${dir}\"
+    }
+
+	foreach dir $NSIS_INCLUDES {
+		foreach root [concat $::PROJROOT $::PROJ_LOCATIONS] {
+			set path [file nativename [file join $root $dir]]
+			if { [file isdirectory $path] } {
+				lappend FLAGS -X\"\!addincludedir ${path}\"
+			} else {
+				exit_msg "!!! Invalid NSIS_INCLUDE: ${path} !!!"
+			}
+		}
+	}
+}

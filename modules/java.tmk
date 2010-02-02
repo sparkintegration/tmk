@@ -1,0 +1,401 @@
+#	Variable: DETECT_EXE
+#		Automatic detection of executables (scans file for main() function)
+set_ifndef DETECT_EXE 1
+
+#	Variable: DETECT_OBJ
+#		Automatic detection of source files
+set_ifndef DETECT_OBJ 1
+
+#	Variable: PATTERNS
+#		File suffixes that mark Java code files
+set_ifndef PATTERNS {*.java}
+
+#	Variable: EXECUTABLES
+#		Specify executable names. This can be used to explicitly generate
+#		executables when <DETECT_EXE> is 0.
+set_ifndef EXECUTABLES {}
+#	Variable: PROJLIBS
+#		Paths to project libraries that the current build target depends on.
+#		These paths are relative to the `$::PROJROOT` directory and will be
+#		recursed into and built as needed.
+set_ifndef PROJLIBS {}
+
+#	Variable: RESOURCES
+#		List of resources to include in the result
+set_ifndef RESOURCES {}
+#	Variable: JNILIBS
+#		List of Java SWIG libraries to include in the result
+set_ifndef JNILIBS {}
+
+set_ifndef LIBRARY_JARS {}
+
+set_ifndef __DEPENDENCIES {}
+
+# auto-detect which source files will become executables
+proc is_executable {src} {
+	read_file $src txt
+	#eat c-style comments
+	regsub -all {\/\*.*?\*\/} $txt "" txt
+	set exp {^(?!.*(\/\/))\s*public\s+static\s+void\s+main\s*\(.*\)}
+	return [regexp -line -- $exp $txt]
+}
+
+proc package_path {src} {
+	read_file $src txt
+	regsub -all {\/\*.*?\*\/} $txt "" txt
+	set exp {^(?!.*(\/\/))\s*package\s+(\S+)\s*;}
+	if {[regexp -line -- $exp $txt match sub1]} {
+		set list [split $sub1 .]
+		return [eval file join $list]
+	} else {
+		return ""
+	}
+}
+
+proc make_classpath {deps} {
+	set path [list [file join __build__ java classes]]
+	foreach dep $deps {
+		lappend path [file join $dep __build__ java classes]
+	}
+	return [join $path :]
+}
+
+# compile source file into an class file and handle dependencies
+#   returns target name, e.g. to be used in build [make_class ...]
+proc make_class {src others deps} {
+
+	# default values
+	set package [package_path $src]
+	set class [file join __build__ java classes $package [file rootname $src].class]
+	
+	file mkdir [file join __build__ java src $package]
+	file copy -force -- $src [file join __build__ java src $package]
+
+	set rule {
+		set classpath [::java::make_classpath \$::java::__DEPENDENCIES]
+		set cmd [list cmd_noexit javac -d [file join __build__ java classes] \
+			-sourcepath [file join __build__ java src] -classpath]
+		lappend cmd \$classpath
+		lappend cmd $src
+		uplevel \#0 \$cmd
+		set buildfile [open [file join __build__ java built] w]
+		puts \$buildfile $src
+		close \$buildfile
+	}
+
+	target $class $src [subst -nocommands $rule]
+	depend $class $others
+	
+	set currentdir [pwd]
+	set srcdeps {}
+
+	foreach dir $deps {
+		if {![file exists $dir] || ![file isdirectory $dir]} {
+			exit_msg "Error: Java dependency directory '$dir' does not exist."
+		}
+		cd $dir
+		foreach pat $::java::PATTERNS {
+			foreach dep [glob -nocomplain $pat] {
+				lappend srcdeps [file join $dir $dep]
+			}
+		}
+		cd $currentdir
+	}
+	
+	depend $class $srcdeps
+	depend $class $::java::PROJLIBS
+
+	# is it a source for an executable?
+	if {$::java::DETECT_EXE} {
+		if [::java::is_executable $src] {
+			set namelist [file split $package]
+			lappend namelist [file rootname $src]
+			set fqname [join $namelist .]
+			lappend ::java::EXECUTABLES $fqname
+		}
+	}
+
+	build $class
+
+	return $class
+}
+
+proc add_all_children {basedir path entriesname} {
+	upvar $entriesname visited_entries
+	upvar currentdir currentdir
+	
+	if {[lcontains $visited_entries $path]} {
+		return
+	}
+	
+	lappend visited_entries $path
+	
+	set dir [file join $basedir $path]
+	if { [file isdirectory $dir] } {
+		cd $dir
+		set children [glob -nocomplain *]
+		cd $currentdir
+		
+		foreach child $children {
+			set relname [file join $path $child]
+			add_all_children $basedir $relname visited_entries
+		}
+	}
+}
+
+proc add_to_jar {basedir path commandname entriesname} {
+	#puts "Entering add_to_jar, basedir = $basedir, path = $path"
+	upvar $commandname jar_command
+	upvar $entriesname visited_entries
+	set currentdir [pwd]
+	
+	set dir [file join $basedir $path]
+	cd $dir
+	set children [glob -nocomplain *]
+	cd $currentdir
+	
+	foreach child $children {
+		#check to see if the entry has been visited before
+		set relname [file join $path $child] ;# name relative to base dir
+		if {! [lcontains $visited_entries $relname]} {
+			#puts "\t$relname: OK"
+			lappend jar_command -C
+			lappend jar_command $basedir
+			lappend jar_command $relname
+			add_all_children $basedir $relname visited_entries
+		} else {
+			if {[file isdirectory [file join $basedir $relname]]} {
+				#puts "\t$relname: duplicate"
+				add_to_jar $basedir $relname jar_command visited_entries
+			} else {
+				puts "Warning: duplicate entry $relname will not be added ([file join $basedir $relname])"
+			}
+		}
+	}
+}
+
+proc make_jar {name jarpath manifest deps} {
+	
+	set dirs [list [file join __build__ java extras] [file join __build__ java classes]]
+	foreach dep $deps {
+		lappend dirs [file join $dep __build__ java classes]
+	}
+	
+	set jar_command {}
+	set visited_entries {}
+	
+	foreach dir $dirs {
+		add_to_jar $dir {} jar_command visited_entries
+	}
+	
+	set cmd [list cmd_noexit jar cvfm $jarpath $manifest]
+	set cmd [concat $cmd $jar_command]
+	
+	uplevel \#0 $cmd
+	
+	set cmd [list cmd_noexit jar i $jarpath]
+	uplevel \#0 $cmd
+}
+
+proc make_bundle {name jarpath} {
+	set basedir [file join __build__ $::TARGET_OS $::TARGET_ARCH]
+	file mkdir [file join $basedir $name.app]
+	file mkdir [file join $basedir $name.app Contents]
+	file mkdir [file join $basedir $name.app Contents MacOS]
+	file mkdir [file join $basedir $name.app Contents Resources]
+	file mkdir [file join $basedir $name.app Contents Resources Java]
+	
+	set pkginfo [open [file join $basedir $name.app Contents PkgInfo] w]
+	puts $pkginfo "APPL????"
+	close $pkginfo
+
+	set icon "$::tmk::dir/modules/GenericJavaApp.icns"
+	set stub "/System/Library/Frameworks/JavaVM.framework/Versions/Current/Resources/MacOS/JavaApplicationStub"
+
+	file copy -force -- $icon [file join $basedir $name.app Contents Resources]
+	file copy -force -- $jarpath [file join $basedir $name.app Contents Resources Java $name.jar]
+	file copy -force -- $stub [file join $basedir $name.app Contents MacOS $name]
+
+	foreach jnilib $::java::JNILIBS {
+		file copy -force -- $jnilib [file join $basedir $name.app Contents Resources Java]
+	}
+
+	set infoPlist [open [file join $basedir $name.app Contents Info.plist] w]
+	puts $infoPlist "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+	puts $infoPlist "<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"
+	puts $infoPlist "<plist version=\"1.0\">"
+	puts $infoPlist "<dict>"
+	puts $infoPlist "	<key>CFBundleDevelopmentRegion</key>"
+	puts $infoPlist "	<string>English</string>"
+	puts $infoPlist "	<key>CFBundleExecutable</key>"
+	puts $infoPlist "	<string>$name</string>"
+	puts $infoPlist "	<key>CFBundleGetInfoString</key>"
+	puts $infoPlist "	<string>$name</string>"
+	puts $infoPlist "	<key>CFBundleIconFile</key>"
+	puts $infoPlist "	<string>GenericJavaApp.icns</string>"
+	puts $infoPlist "	<key>CFBundleIdentifier</key>"
+	puts $infoPlist "	<string>com.spark.$name</string>"
+	puts $infoPlist "	<key>CFBundleInfoDictionaryVersion</key>"
+	puts $infoPlist "	<string>6.0</string>"
+	puts $infoPlist "	<key>CFBundleName</key>"
+	puts $infoPlist "	<string>$name</string>"
+	puts $infoPlist "	<key>CFBundlePackageType</key>"
+	puts $infoPlist "	<string>APPL</string>"
+	puts $infoPlist "	<key>CFBundleShortVersionString</key>"
+	puts $infoPlist "	<string>1.0.0</string>"
+	puts $infoPlist "	<key>CFBundleSignature</key>"
+	puts $infoPlist "	<string>????</string>"
+	puts $infoPlist "	<key>CFBundleVersion</key>"
+	puts $infoPlist "	<string>1.0.0</string>"
+	puts $infoPlist "	<key>Java</key>"
+	puts $infoPlist "	<dict>"
+	puts $infoPlist "		<key>ClassPath</key>"
+	puts $infoPlist "		<array>"
+	puts $infoPlist "			<string>\$JAVAROOT/$name.jar</string>"
+	puts $infoPlist "		</array>"
+	puts $infoPlist "		<key>JVMVersion</key>"
+	puts $infoPlist "		<string>1.4+</string>"
+	puts $infoPlist "		<key>MainClass</key>"
+	puts $infoPlist "		<string>$name</string>"
+	puts $infoPlist "		<key>VMOptions</key>"
+	puts $infoPlist "		<string></string>"
+	puts $infoPlist "	</dict>"
+	puts $infoPlist "	<key>NSJavaPath</key>"
+	puts $infoPlist "	<array>"
+	puts $infoPlist "		<string>$name.jar</string>"
+	puts $infoPlist "	</array>"
+	puts $infoPlist "	<key>NSJavaRoot</key>"
+	puts $infoPlist "	<string>Contents/Resources/Java</string>"
+	puts $infoPlist "</dict>"
+	puts $infoPlist "</plist>"
+	close $infoPlist
+	
+	set cmd [list cmd_noexit /Developer/Tools/SetFile -a B [file join $basedir $name.app]]
+	uplevel \#0 $cmd
+}
+
+proc make_jar_details {name objs manifest_text} {
+	set exe_name [file join __build__ java jars $name.jar]
+
+	set manifest [file join __build__ java $name.manifest]
+	set manifestfile [open $manifest w]
+	puts $manifestfile $manifest_text
+	close $manifestfile
+
+	set rule {
+		::java::make_jar $name $exe_name $manifest \$::java::__DEPENDENCIES
+	}
+
+	target $exe_name $objs [subst -nocommands $rule]
+
+	set libdeps {}
+	foreach dep $::java::__DEPENDENCIES {
+		lappend libdeps [file join $dep __build__ java built]
+	}
+
+	depend $exe_name $libdeps
+	depend $exe_name $::java::PROJLIBS
+
+	build $exe_name
+	
+	return $exe_name
+}
+
+proc make_exe {name objs} {
+	set exe_name [make_jar_details $name $objs "Main-Class: $name"]
+	
+	when_target os=osx {
+		# create a bundle
+		set bundleRule {::java::make_bundle $name $exe_name}
+		
+		target [file join [tmk_output_dir] $name.app] $exe_name [subst -nocommands $bundleRule]
+		build [file join [tmk_output_dir] $name.app]
+	}
+	
+	return $exe_name
+}
+
+proc make_library_jar {name objs} {
+	set exe_name [make_jar_details $name $objs ""]
+	
+	return $exe_name
+}
+
+eval_after {
+	
+	if {! [lcontains $::tmk::cmdLineTargets clean]} {
+		
+		file mkdir [file join __build__ java classes]
+		file delete -force -- [file join __build__ java src]
+		file mkdir [file join __build__ java src]
+		
+		set currentdir [pwd]
+		foreach dir $::java::PROJLIBS {
+			set path [file join $::PROJROOT $dir]
+			if {$path != $currentdir} {
+				set depfilename [file join $path __build__ java dependencies]
+				
+				if [file exists $depfilename] {
+					set depfile [open $depfilename]
+					while {[gets $depfile line] >= 0} {
+						if {! [lcontains $::java::__DEPENDENCIES $line]} {
+							lappend ::java::__DEPENDENCIES $line
+						}
+					}
+					close $depfile
+				}
+			}
+		}
+		
+		foreach dir $::java::PROJLIBS {
+			set dep [file join $::PROJROOT $dir]
+			if {! [lcontains $::java::__DEPENDENCIES $dep]} {
+				lappend ::java::__DEPENDENCIES $dep
+			}
+		}
+		
+		set depfile [open [file join __build__ java dependencies] w]
+		foreach dep $::java::__DEPENDENCIES {
+			puts $depfile $dep
+		}
+		close $depfile
+		
+		# auto-detect source files by file patterns?
+		set objs {}
+		if $DETECT_OBJ {
+			set srcs {}
+			foreach pat $PATTERNS {
+				foreach src [glob -nocomplain $pat] {
+					lappend srcs $src
+				}
+			}
+			foreach src $srcs {
+				set others $srcs
+				lremove others $src
+				lappend objs [make_class $src $others $::java::__DEPENDENCIES]
+			}
+		}
+		
+		file mkdir [file join __build__ java jars]
+		file mkdir [file join __build__ java extras]
+		
+		if {[llength $::java::EXECUTABLES] > 0 || [llength $::java::LIBRARY_JARS] > 0} {
+			
+			foreach extra $::java::RESOURCES {
+				if {[catch {file copy -force -- $extra [file join __build__ java extras]} result] != 0} {
+					exit_msg $result
+				}
+			}
+			
+			foreach exe $::java::EXECUTABLES {
+				make_exe $exe $objs
+			}
+			
+			foreach lib_name $::java::LIBRARY_JARS {
+				make_library_jar $lib_name $objs
+			}
+		}
+		
+		
+	}
+}

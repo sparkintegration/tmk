@@ -1,0 +1,83 @@
+# -*-Mode: tcl -*-
+
+module link
+
+#	Variable: ASM
+#		Set the assembler executable
+set_ifndef ASM    arm-elf-gcc
+
+#	Variable: FLAGS
+#		Set the assembler flags
+set_ifndef FLAGS  "-c"
+
+#	Variable: SUFFIX
+#		Set the suffix of assembly files
+set_ifndef SUFFIX .S
+
+#	Variable: DETECT
+#		Automatically detect assembly files
+set_ifndef DETECT 1
+
+proc fix_define {name} {
+	regsub -all {[+]} $name "x" name
+	regsub -all {[^a-zA-Z0-9_]} $name "_" name
+	return $name
+}
+
+set DEFINES(HOST_OS_[fix_define [string toupper $OS]]) 1
+set DEFINES(TARGET_OS_[fix_define [string toupper $::TARGET_OS]]) 1
+set DEFINES(TARGET_ARCH_[fix_define [string toupper $::TARGET_ARCH]]) 1
+set DEFINES(TARGET_BOARD_[fix_define [string toupper $::TARGET_BOARD]]) 1
+
+#	Variable: PROJINCS
+#		Additional include directories
+set_ifndef PROJINCS {}
+
+proc default_flags {} {
+    global ::asm::FLAGS 
+	set result $::asm::FLAGS
+	foreach {key value} [array get ::asm::DEFINES] {
+		lappend result "-D$key=$value"
+	}
+    return $result
+}
+
+proc make_obj {asmfile {objfile {}}} {
+    if {$objfile == {}} {
+		set objfile [filename_obj [file rootname $asmfile]]
+    }
+    target $objfile $asmfile {
+		eval cmd [list $asm::ASM] [::asm::default_flags] [list -o $TARGET $SRC]
+    }
+    build $objfile
+    lappend ::link::LIB_OBJ $objfile
+}
+    
+eval_after {
+    if $asm::DETECT {
+		foreach file [glob -nocomplain *$SUFFIX] {
+	    	asm::make_obj $file
+		}
+    }
+
+	foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+		lappend FLAGS -I[file nativename $dir]
+    }
+
+	foreach dir $PROJINCS {
+		foreach root [concat $::PROJROOT $::PROJ_LOCATIONS] {
+			set path [file nativename [file join $root $dir]]
+			if { [file isdirectory $path] } {
+				lappend FLAGS -I${path}
+			} else {
+				exit_msg "!!! Invalid PROJINC: ${path} !!!"
+			}
+		}
+	}
+	
+	eval_after {
+		foreach attr [array names ::ATTRS] {
+			set ::asm::DEFINES(ATTR_[::asm::fix_define [string toupper $attr]]) $::ATTRS($attr)
+		}
+	}
+}

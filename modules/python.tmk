@@ -1,0 +1,112 @@
+#	Title: python Module
+#
+# =========================================================================
+#
+# 		TMK module for building python C extensions
+# ===========================================================================
+
+#	Variable: PROJLIBS
+#		Paths to project libraries that the current build target depends on.
+#		These paths are relative to the `$::PROJROOT` directory and will be
+#		recursed into and built as needed.
+set_ifndef PROJLIBS {}
+
+#	Variable: DEVELOPMENT_MODE
+#		Set to true if packages should be built in development mode (i.e python setup.py develop)
+set_ifndef DEVELOPMENT_MODE 0
+
+proc extension_target {files} {
+	if { ![lcontains $::tmk::cmdLineTargets "clean"] } {
+	
+		set cflags {}
+		set libpaths {}
+		set libs {}
+		set link_ldflags [::link::ld_flags]
+	
+		#TODO: This should come from the swig stuff (or at least somewhere in config/arch/os/osx.tmk)
+		when_target os=osx {
+			lappend cflags "-I/System/Library/Frameworks/Python.framework/Headers"
+			lappend cflags "-dynamic"
+			lappend link_ldflags "-framework Python"
+			lappend cflags -I[pwd]
+			foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+				lappend cflags -I$dir
+		    }
+			lremove cflags -Werror ;
+			
+			proc getModuleName {basename} {
+				return $basename.so
+			}
+		}
+		
+		when_target os=mswin {
+			set cflags [::c::default_flags]
+			lappend cflags "-I/cross/win32/include/python-include"
+			lappend cflags -I[pwd]
+			lappend libpaths "/cross/win32/lib/python-libs"
+			lappend libs "python25"
+			foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+				lappend cflags -I$dir
+		    }
+		
+			proc getModuleName {basename} {
+				return $basename.pyd
+			}
+		}
+	
+		foreach file $files {
+			::c::make_obj ${file}.c {} [subst {{$cflags}}] undef
+		
+			set def_libspec [::link::default_libspec]
+			set additional_libspec [::link::libspec create \{$libpaths\} \{$libs\} \{\} \{\}]
+			
+			set libtarget [::link::make_shlib [getModuleName $file] ${file}.o \
+				[::link::libspec merge $def_libspec $additional_libspec] [subst {$link_ldflags}] undef]
+				
+			build $libtarget
+			
+			set copyrule {
+				eval file copy -force -- [file join [tmk_output_dir] [python::getModuleName $file]] .
+			}
+			
+			target copylib $libtarget [subst -nocommands $copyrule]
+			build copylib
+		}
+	
+	} else {
+		puts "clean"
+		set exts {"pyd" "so"}
+		foreach ext $exts {
+			puts "Deleting $ext"
+			if { [llength [glob -nocomplain "*.$ext"]] } {
+				eval file delete -force -- [glob -nocomplain *.pyd]
+			}
+		}
+	}
+
+}
+
+eval_after {
+	if { ![tmk::cleaning] } {
+	
+		set currentdir [pwd]
+		foreach dir $python::PROJLIBS {
+			set path [file join $::PROJROOT $dir]
+			if { $path != $currentdir } {
+				if { [::tmk::handle_subdirs $path $currentdir] } {
+					log_msg "back in directory $currentdir"
+				}
+			}
+		}
+		
+		if [file exists setup.py] {
+			if { $python::DEVELOPMENT_MODE } {
+				cmd python setup.py develop
+			} else {
+				set output_dir [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
+				cmd python setup.py bdist_egg --dist-dir=$output_dir --bdist-dir=$output_dir/build
+				file delete -force build
+			}
+		}
+	}
+}

@@ -1,0 +1,60 @@
+# grep:
+# usage is 'grep [--files] pattern { list of files }
+proc ::grep args {
+    set grep_usage \
+	    "usage is 'grep \-\-files pattern file-list1 ?file-list2 ...?<\n\
+	      \-\-files:  only show matched file names."
+
+    set files      0
+    set inputfiles {}
+    set pattern    ""
+    
+    foreach i $args {
+
+	if [regexp \\\-\\\-\[a-z\]\+ $i ""] {
+	    
+	    if { $pattern != "" } {
+		exit_msg "invalid switch $i \n $grep_usage"
+	    }
+	    if { $i == "\-\-files" } {
+		set files 1
+		continue
+	    }
+	} else {
+	    if { $pattern == "" } {
+		set pattern $i
+		continue
+	    } else {
+		set inputfiles [concat $inputfiles $i]
+	    }
+	}
+    }   
+    if { $inputfiles == {} } {
+	return ""
+    }
+
+    if { $pattern == "" } {
+	exit_msg "no grep pattern given !\n $grep_usage"
+    }
+
+    set result {}
+
+    foreach fname $inputfiles {
+	if [file readable $fname] {
+	    set ifile [open $fname "r"] 
+	    while { ! [eof $ifile] } {
+		gets $ifile l
+		if [regexp $pattern $l] {
+		    if $files {
+			lappend result $fname 
+			break
+		    } else {
+			lappend result $l
+		    }
+		}
+	    }
+	    close $ifile
+	}
+    }
+    return $result
+}
