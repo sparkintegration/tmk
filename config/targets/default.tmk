@@ -205,18 +205,21 @@ namespace eval opengl {
 	config when_target os=osx {
     	config set LDFLAGS { -framework OpenGL }
 	}
-	config when_target os=linux {
-		config set LDFLAGS { -lGL }
-	}
+	
+	config when_target os=mswin {
+	    config set LDFLAGS { -lopengl32 }
+	    config set LIBS { opengl32 }
+    }
 }
 
 namespace eval glut {
 	config when_target os=osx {
     	config set LDFLAGS { -framework GLUT }
-    	config set DEPEND  { opengl }
 	}
-	config when_target os=linux {
-		config set LDFLAGS { -lglut -lGLU }
+	
+	config when_target os=mswin {
+    	config set LDFLAGS { -lglut32 -lglu32 }
+    	config set LIBS { glut32 glu32 }
 	}
 }
 
