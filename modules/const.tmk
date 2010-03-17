@@ -185,6 +185,129 @@ proc generate_cxx { cdlFile outFile } {
 	make_target $cdlFile $outFile $outString "C/C++"
 }
 
+proc put_java_descr { str text } {
+	upvar $str out
+	set out "${out}/* ${text} */\n"
+}
+
+proc java_guesstype {value} {
+	if {[regexp -- {".*"} $value]} {
+		return "String"
+	} elseif {[regexp -- {[^.]+[.][^.]*} $value]} {
+		return "float"
+	} else {
+		return "int"
+	}
+}
+
+proc java_converttype {type} {
+	switch $type {
+		"char*"	{ return "String" }
+		default		{ return $type }
+	}
+}
+
+proc put_java_def { str prefix name value } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	if [string is upper [regsub -all -- {[0-9_]} $name ""]] {
+		set transName "[string toupper $prefix]${name}"
+	} else {
+		set transName "c_${prefix}${name}"
+	}
+	
+	if { $value == "" } {
+		set out "${out}static final int ${transName} = 1;\n"
+	} else {
+		set out "${out}static final [java_guesstype $value] ${transName} = ${value}\n"
+	}
+}
+
+proc put_java_enum { str prefix name entries } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	set enumName "${prefix}${name}"
+	
+	set end [expr [llength $entries] - 1]
+	set index 0
+	foreach entry $entries {
+		if { [lindex $entry 1] != "" } {
+			set index [lindex $entry 1]
+		}
+		set out "${out}static final int e_${enumName}_[lindex $entry 0] = $index;\n"
+		incr index
+	}
+}
+
+proc put_java_const { str prefix name ctype value } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	set constName "c_${prefix}${name}"
+	set out "${out}static final [java_converttype ${ctype}] ${constName} = ${value};\n"
+}
+
+proc put_java_array { str prefix name ctype entries } {
+	upvar $str out
+	if { $prefix != "" } {
+		set prefix "${prefix}_"
+	}
+	set constName "c_${prefix}${name}"
+	set out "${out}static final [java_converttype ${ctype}] ${constName}\\\[] = {\n"
+	
+	set end [expr [llength $entries] - 1]
+	set i 0
+	foreach entry $entries {
+		set out "${out}\t${entry}"
+		if { $i < $end } {
+			set out "${out},\n"
+		} else {
+			set out "${out}\n"
+		}
+		incr i
+	}
+	
+	set out "${out}};\n"
+}
+
+proc generate_java { cdlFile outFileBase } {
+	set outString "/******************************************************************************
+ *	AUTOMATICALLY GENERATED FILE
+ *
+ *	Constant definitions generated from ${cdlFile} on
+ *	[timestamp]
+ *****************************************************************************/
+package Spark.Distrix;
+
+public interface ${outFileBase}_Constants
+{
+
+"
+	
+	set prefix ""
+	foreach item $const::ITEMS {
+		switch [lindex $item 0] {
+			"br"		{ put_br outString }
+			"prefix"	{ set prefix [lindex $item 1] }
+			"descr"		{ put_java_descr outString [lindex $item 1] }
+			"def"		{ put_java_def outString $prefix [lindex $item 1] [lindex $item 2] }
+			"enum"		{ put_java_enum outString $prefix [lindex $item 1] [lindex $item 2] }
+			"const"		{ put_java_const outString $prefix [lindex $item 1] [lindex $item 2] [lindex $item 3] }
+			"array"		{ put_java_array outString $prefix [lindex $item 1] [lindex $item 2] [lindex $item 3] }
+		}
+	}
+
+	set outString "${outString}
+}"
+
+	make_target $cdlFile "${outFileBase}_Constants.java" $outString "Java"
+}
+
 proc put_lua_descr { str text } {
 	upvar $str out
 	set out "${out}--\\\[\\\[ ${text} ]]\n"
@@ -330,6 +453,7 @@ proc generate { cdlFile lang } {
 		"cxx"	{ generate_cxx $cdlFile "${outFileBase}.h" }
 		"lua"	{ generate_lua $cdlFile "${outFileBase}.lua" }
 		"python" { generate_python $cdlFile "${outFileBase}.py" }
+		"java"	{ generate_java $cdlFile $outFileBase }
 		default	{ exit_msg "Unknown language in const module: ${lang}" }
 	}
 }

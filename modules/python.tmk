@@ -74,12 +74,11 @@ proc extension_target {files} {
 		}
 	
 	} else {
-		puts "clean"
 		set exts {"pyd" "so"}
 		foreach ext $exts {
-			puts "Deleting $ext"
+			puts "Deleting $ext files"
 			if { [llength [glob -nocomplain "*.$ext"]] } {
-				eval file delete -force -- [glob -nocomplain *.pyd]
+				eval file delete -force -- [glob -nocomplain *.$ext]
 			}
 		}
 	}

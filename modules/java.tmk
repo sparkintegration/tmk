@@ -20,6 +20,8 @@ set_ifndef EXECUTABLES {}
 #		recursed into and built as needed.
 set_ifndef PROJLIBS {}
 
+set_ifndef SYSLIBS {}
+
 #	Variable: RESOURCES
 #		List of resources to include in the result
 set_ifndef RESOURCES {}
@@ -30,6 +32,8 @@ set_ifndef JNILIBS {}
 set_ifndef LIBRARY_JARS {}
 
 set_ifndef __DEPENDENCIES {}
+set_ifndef __RESOURCES {}
+set_ifndef __JNILIBS {}
 
 # auto-detect which source files will become executables
 proc is_executable {src} {
@@ -55,7 +59,11 @@ proc package_path {src} {
 proc make_classpath {deps} {
 	set path [list [file join __build__ java classes]]
 	foreach dep $deps {
-		lappend path [file join $dep __build__ java classes]
+		if {[string match *.jar $dep]} {
+			lappend path $dep
+		} else {
+			lappend path [file join $dep __build__ java classes]
+		}
 	}
 	return [join $path :]
 }
@@ -63,7 +71,6 @@ proc make_classpath {deps} {
 # compile source file into an class file and handle dependencies
 #   returns target name, e.g. to be used in build [make_class ...]
 proc make_class {src others deps} {
-
 	# default values
 	set package [package_path $src]
 	set class [file join __build__ java classes $package [file rootname $src].class]
@@ -72,6 +79,7 @@ proc make_class {src others deps} {
 	file copy -force -- $src [file join __build__ java src $package]
 
 	set rule {
+		::java::load_dependencies
 		set classpath [::java::make_classpath \$::java::__DEPENDENCIES]
 		set cmd [list cmd_noexit javac -d [file join __build__ java classes] \
 			-sourcepath [file join __build__ java src] -classpath]
@@ -88,8 +96,12 @@ proc make_class {src others deps} {
 	
 	set currentdir [pwd]
 	set srcdeps {}
-
+	set libdeps {}
 	foreach dir $deps {
+		if {[string match *.jar $dir]} {
+			lappend libdeps $dir
+			continue
+		}
 		if {![file exists $dir] || ![file isdirectory $dir]} {
 			exit_msg "Error: Java dependency directory '$dir' does not exist."
 		}
@@ -104,6 +116,8 @@ proc make_class {src others deps} {
 	
 	depend $class $srcdeps
 	depend $class $::java::PROJLIBS
+	depend $class $libdeps
+	depend $class [file join __build__ java dependencies]
 
 	# is it a source for an executable?
 	if {$::java::DETECT_EXE} {
@@ -177,8 +191,30 @@ proc add_to_jar {basedir path commandname entriesname} {
 proc make_jar {name jarpath manifest deps} {
 	
 	set dirs [list [file join __build__ java extras] [file join __build__ java classes]]
+	set libs {}
 	foreach dep $deps {
-		lappend dirs [file join $dep __build__ java classes]
+		if {[string match *.jar $dep]} {
+			lappend libs $dep
+		} else {
+			set dir [file join $dep __build__ java classes]
+			if {[file isdirectory $dir]} {
+				lappend dirs $dir
+			}
+		}
+	}
+	
+	if {[llength $libs] != 0} {
+		set dest [file join __build__ java libs]
+		lappend dirs $dest
+		file mkdir $dest
+		set currentDir [pwd]
+		cd $dest
+		foreach lib $libs {
+			set cmd [list cmd_noexit jar xf $lib]
+			uplevel \#0 $cmd
+		}
+		file delete -force -- META-INF
+		cd $currentDir
 	}
 	
 	set jar_command {}
@@ -216,9 +252,9 @@ proc make_bundle {name jarpath} {
 	file copy -force -- $jarpath [file join $basedir $name.app Contents Resources Java $name.jar]
 	file copy -force -- $stub [file join $basedir $name.app Contents MacOS $name]
 
-	foreach jnilib $::java::JNILIBS {
-		file copy -force -- $jnilib [file join $basedir $name.app Contents Resources Java]
-	}
+	# foreach jnilib $::java::JNILIBS {
+	# 	file copy -force -- $jnilib [file join $basedir $name.app Contents Resources Java]
+	# }
 
 	set infoPlist [open [file join $basedir $name.app Contents Info.plist] w]
 	puts $infoPlist "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
@@ -274,6 +310,20 @@ proc make_bundle {name jarpath} {
 	uplevel \#0 $cmd
 }
 
+proc copy_resources {resources jnilibs} {
+	foreach resource $resources {
+		if {[catch {file copy -force -- $resource [file join __build__ java extras]} result] != 0} {
+			exit_msg $result
+		}
+	}
+	
+	foreach lib $jnilibs {
+		if {[catch {file copy -force -- $lib [file join __build__ java extras jnilibs]} result] != 0} {
+			exit_msg $result
+		}
+	}
+}
+
 proc make_jar_details {name objs manifest_text} {
 	set exe_name [file join __build__ java jars $name.jar]
 
@@ -283,18 +333,14 @@ proc make_jar_details {name objs manifest_text} {
 	close $manifestfile
 
 	set rule {
+		::java::copy_resources \$::java::__RESOURCES \$::java::__JNILIBS
 		::java::make_jar $name $exe_name $manifest \$::java::__DEPENDENCIES
 	}
 
 	target $exe_name $objs [subst -nocommands $rule]
 
-	set libdeps {}
-	foreach dep $::java::__DEPENDENCIES {
-		lappend libdeps [file join $dep __build__ java built]
-	}
-
-	depend $exe_name $libdeps
-	depend $exe_name $::java::PROJLIBS
+	depend $exe_name [file join __build__ java dependencies]
+	depend $exe_name \[::java::exe_dependencies\]
 
 	build $exe_name
 	
@@ -321,44 +367,144 @@ proc make_library_jar {name objs} {
 	return $exe_name
 }
 
+set __loaded_dependencies__ 0
+
+proc load_dependencies {} {
+	if {$::java::__loaded_dependencies__} {
+		return
+	}
+	set depfilename [file join __build__ java dependencies]
+	::tmk::source $depfilename
+	set ::java::__DEPENDENCIES $__dependecies
+	set ::java::__RESOURCES $__resources
+	set ::java::__JNILIBS $__jnilibs
+	
+	set ::java::__loaded_dependencies__ 1
+}
+
+proc handle_dependecies {dirs} {
+	set currentdir [pwd]
+	foreach dir $dirs {
+		set path [file join $::PROJROOT $dir]
+		if {$path != $currentdir} {
+			set depfilename [file join $path __build__ java dependencies]
+			
+			if [file exists $depfilename] {
+				::tmk::source $depfilename
+				foreach dep $__dependecies {
+					if {! [lcontains $::java::__DEPENDENCIES $dep]} {
+						lappend ::java::__DEPENDENCIES $dep
+					}
+				}
+				
+				foreach rsc $__resources {
+					if {! [lcontains $::java::__RESOURCES $rsc]} {
+						lappend ::java::__RESOURCES $rsc
+					}
+				}
+				
+				foreach lib $__jnilibs {
+					if {! [lcontains $::java::__JNILIBS $lib]} {
+						lappend ::java::__JNILIBS $lib
+					}
+				}
+			}
+		}
+	}
+	
+	set currentdir [pwd]
+	foreach dir $dirs {
+		set dep [file join $::PROJROOT $dir]
+		if {! [lcontains $::java::__DEPENDENCIES $dep]} {
+			lappend ::java::__DEPENDENCIES $dep
+		}
+		
+		# see if any of our PROJLIBS contain jnilibs
+		set build_dir [file join $dep [tmk_output_dir]]
+		if { [file isdirectory $build_dir] } {
+			cd $build_dir
+			set jnilibs [glob -nocomplain *.jnilib]
+			cd $currentdir
+
+			foreach lib $jnilibs {
+				set libname [file join $build_dir $lib]
+				if {! [lcontains $::java::__JNILIBS $libname]} {
+					lappend ::java::__JNILIBS $libname
+				}
+			}
+		}
+	}
+	
+	set depfile [open [file join __build__ java dependencies] w]
+	puts $depfile "set __dependecies {$::java::__DEPENDENCIES}"
+	puts $depfile "set __resources {$::java::__RESOURCES}"
+	puts $depfile "set __jnilibs {$::java::__JNILIBS}"
+	close $depfile
+}
+
+proc make_dependencies {dirs} {
+	set target_name [file join __build__ java dependencies]
+	set rule {
+		set dir_list {$dirs}
+		::java::handle_dependecies \$dir_list
+	}
+	
+	target $target_name $dirs [subst -nocommands $rule]
+	build $target_name
+	return $target_name
+}
+
+proc exe_dependencies {} {
+	load_dependencies
+	return [concat $::java::__DEPENDENCIES $::java::__RESOURCES $::java::__JNILIBS]
+}
+
+proc findResource {path} {
+	if {[file pathtype $path] == "absolute"} {
+		set name $path
+	} else {
+		set name [file join [pwd] $path]
+		if {![file exists $name]} {
+			set name [file join $::PROJROOT $path]
+		}
+	}
+	if {![file exists $name]} {
+		exit_msg "Error: Java library dependency '$path' could not be found."
+	}
+	
+	return $name
+}
+
 eval_after {
 	
 	if {! [lcontains $::tmk::cmdLineTargets clean]} {
+		
+		foreach lib $::java::SYSLIBS {
+			set libname [findResource $lib]
+			if {! [lcontains $::java::__DEPENDENCIES $libname]} {
+				lappend ::java::__DEPENDENCIES $libname
+			}
+		}
+		
+		foreach rsc $::java::RESOURCES {
+			set rscname [findResource $rsc]
+			if {! [lcontains $::java::__RESOURCES $rscname]} {
+				lappend ::java::__RESOURCES $rscname
+			}
+		}
+		
+		foreach lib $::java::JNILIBS {
+			set libname [findResource $lib]
+			if {! [lcontains $::java::__JNILIBS $libname]} {
+				lappend ::java::__JNILIBS $libname
+			}
+		}
 		
 		file mkdir [file join __build__ java classes]
 		file delete -force -- [file join __build__ java src]
 		file mkdir [file join __build__ java src]
 		
-		set currentdir [pwd]
-		foreach dir $::java::PROJLIBS {
-			set path [file join $::PROJROOT $dir]
-			if {$path != $currentdir} {
-				set depfilename [file join $path __build__ java dependencies]
-				
-				if [file exists $depfilename] {
-					set depfile [open $depfilename]
-					while {[gets $depfile line] >= 0} {
-						if {! [lcontains $::java::__DEPENDENCIES $line]} {
-							lappend ::java::__DEPENDENCIES $line
-						}
-					}
-					close $depfile
-				}
-			}
-		}
-		
-		foreach dir $::java::PROJLIBS {
-			set dep [file join $::PROJROOT $dir]
-			if {! [lcontains $::java::__DEPENDENCIES $dep]} {
-				lappend ::java::__DEPENDENCIES $dep
-			}
-		}
-		
-		set depfile [open [file join __build__ java dependencies] w]
-		foreach dep $::java::__DEPENDENCIES {
-			puts $depfile $dep
-		}
-		close $depfile
+		make_dependencies $::java::PROJLIBS
 		
 		# auto-detect source files by file patterns?
 		set objs {}
@@ -378,15 +524,9 @@ eval_after {
 		
 		file mkdir [file join __build__ java jars]
 		file mkdir [file join __build__ java extras]
+		file mkdir [file join __build__ java extras jnilibs]
 		
 		if {[llength $::java::EXECUTABLES] > 0 || [llength $::java::LIBRARY_JARS] > 0} {
-			
-			foreach extra $::java::RESOURCES {
-				if {[catch {file copy -force -- $extra [file join __build__ java extras]} result] != 0} {
-					exit_msg $result
-				}
-			}
-			
 			foreach exe $::java::EXECUTABLES {
 				make_exe $exe $objs
 			}

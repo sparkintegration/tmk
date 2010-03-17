@@ -397,21 +397,6 @@ proc ::tmk::build { targetvarname _msg {path {}} } {
 	} else {
 		lappend path $shorttarget
 	}
-	
-	# see if target is a directory
-	set potentialDirs {}
-	if {[file pathtype $shorttarget] == "absolute"} {
-		lappend potentialDirs $shorttarget
-	} else {
-		lappend potentialDirs [file join [pwd] $shorttarget]
-		lappend potentialDirs [file join $::PROJROOT $shorttarget]
-	}
-	
-	foreach dir $potentialDirs {
-		if {[file isdirectory $dir] && [file exists [file join $dir TMakefile]]} {
-			return [::tmk::handle_directory_dependency $dir $shorttarget]
-		}
-	}
 
 	# look up target in cache
 	# contents of cache: (complete target name, building result, mod time)
@@ -455,6 +440,21 @@ proc ::tmk::build { targetvarname _msg {path {}} } {
 
 	# trivial reject
 	if {[llength $rules] == 0} {
+		# see if target is a directory
+		set potentialDirs {}
+		if {[file pathtype $shorttarget] == "absolute"} {
+			lappend potentialDirs $shorttarget
+		} else {
+			lappend potentialDirs [file join [pwd] $shorttarget]
+			lappend potentialDirs [file join $::PROJROOT $shorttarget]
+		}
+
+		foreach dir $potentialDirs {
+			if {[file isdirectory $dir] && [file exists [file join $dir TMakefile]]} {
+				return [::tmk::handle_directory_dependency $dir $shorttarget]
+			}
+		}
+		
 		if { [::tmk::does_target_exist target ttime] } { 
 			set msg "no rule how to make ${target}, but it exists."
 			dbg_msg $msg 2

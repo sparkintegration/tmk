@@ -659,6 +659,9 @@ proc ::tmk::backslash_convert {fname} {
 }
 
 proc ::tmk::write_build_id {} {
+	if {$::tmk::builtSomething} {
+		file mkdir [tmk_output_dir]
+	}
 	if [file exists [tmk_output_dir]] {
 		set idFile [open [file join [tmk_output_dir] __build_id__] w]
 		puts $idFile $::__buildIdentifier
