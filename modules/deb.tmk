@@ -1,0 +1,98 @@
+set_ifndef BUILD_DIR [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
+
+set_ifndef PACKAGES {}
+
+eval_after {
+	foreach package_array $deb::PACKAGES {
+		upvar \#0 $package_array package
+		
+		if { ![info exists package(MAINTAINER)] } {
+			set package(MAINTAINER) "Spark Integration <support@sparkintegration.com>"
+		}
+		
+		if { ![info exists package(VERSION)] } {
+			set package(VERSION) "1.0"
+		}
+		
+		if { ![info exists package(ARCHITECTURE)]} {
+			set package(ARCHITECTURE) "i386"
+		}
+		
+		if { ![info exists package(DEPENDS)] } {
+			set package(DEPENDS) ""
+		}
+		
+		if { ![info exists package(DESCRIPTION)] } {
+			set package(DESCRIPTION) $package(PACKAGE_NAME)
+		}
+		
+		if { ![info exists package(SECTION)]} {
+			set package(SECTION) "devel"
+		}
+		
+		if { ![info exists package(TMK_DEPENDENCIES)]} {
+			set package(TMK_DEPENDENCIES) ""
+		}
+	
+		log_msg "Making deb file for $package(PACKAGE_NAME)"
+		set debDir [file join $deb::BUILD_DIR "deb" $package(PACKAGE_NAME)]
+		set controlDir [file join $debDir "DEBIAN"]
+		set outputDeb [file join $deb::BUILD_DIR "$package(PACKAGE_NAME)-$package(VERSION)_$package(ARCHITECTURE).deb"]
+	
+		set output "Package: $package(PACKAGE_NAME)\n"
+		set output "${output}Version: $package(VERSION)\n"
+		set output "${output}Section: $package(SECTION)\n"
+		set output "${output}Maintainer: $package(MAINTAINER)\n"
+		set output "${output}Architecture: $package(ARCHITECTURE)\n"
+		set output "${output}Depends: $package(DEPENDS)\n"
+		set output "${output}Description: $package(DESCRIPTION)\n"
+		log_msg "$output"
+		
+		proc dostuff {} {
+			
+		}
+		
+		set rule {
+			file delete -force $debDir
+	
+			file mkdir $controlDir
+			set controlFile [file join $controlDir "control"]
+			set things {$package(FILES)}
+			set perms {$package(FILE_PERMS)}
+
+			set out [open \$controlFile "w"]
+			puts \$out "$output"
+			close \$out
+			
+			foreach thing \$things {
+				puts \$thing
+				set path [lindex \$thing 0]
+				set localFile [lindex \$thing 1]
+				set localPath [file join $debDir \$path]
+				file mkdir [file join $debDir \$path]
+				if {\$localFile != ""} {
+					file copy -force \$localFile \$localPath
+				}
+			}
+			
+			foreach thing \$perms {
+				set path [lindex \$thing 0]
+				set localPath [file join $debDir \$path]
+				set mod [lindex \$thing 1]
+				set owner [lindex \$thing 2]
+				if {\$mod != 0} {
+					cmd chmod -R \$mod \$localPath 
+				}
+				if {\$owner != ""} {
+					cmd sudo chown -R \$owner \$localPath 
+				}
+			}
+
+			cmd dpkg --build $debDir $outputDeb
+		}
+		if { ![tmk::cleaning] } {
+			target $package(PACKAGE_NAME) $package(TMK_DEPENDENCIES) [subst -nocommands $rule]
+			build $package(PACKAGE_NAME)
+		}
+	}
+}	
