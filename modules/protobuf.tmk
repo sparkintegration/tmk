@@ -1,0 +1,24 @@
+#	Title: protobuf Module
+#
+# =========================================================================
+#
+# 		TMK module for building protocol buffers
+# ===========================================================================
+
+lappend ::link::SYSLIBS protobuf
+
+eval_after {
+    log_msg "Processing protocol buffer definitions"
+    foreach file [glob -nocomplain "*.proto"] {
+        set baseName [lindex [split $file "."] 0]
+        if { ![tmk::cleaning] } {
+            # Done immediately rather than as a target so that the files are there when the cxx
+            # module looks for things to compile
+			cmd protoc --cpp_out=. $file
+        } else {
+            file delete -force $baseName.pb.cc
+            file delete -force $baseName.pb.h
+        }
+        
+    }
+}
