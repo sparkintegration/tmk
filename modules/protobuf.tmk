@@ -11,14 +11,31 @@ eval_after {
     log_msg "Processing protocol buffer definitions"
     foreach file [glob -nocomplain "*.proto"] {
         set baseName [lindex [split $file "."] 0]
-        if { ![tmk::cleaning] } {
-            # Done immediately rather than as a target so that the files are there when the cxx
-            # module looks for things to compile
-			cmd protoc --cpp_out=. $file
-        } else {
-            file delete -force $baseName.pb.cc
-            file delete -force $baseName.pb.h
-        }
         
+        set cachedmodtime {}
+        read_file [file join [tmk_output_dir] $baseName.mtime] cachedmodtime
+        
+        catch { set lastmodtime [file mtime $file] }
+        write_file [file join [tmk_output_dir] $baseName.mtime] lastmodtime
+        
+        set cppfile "$baseName.pb.cc"
+        set header "$baseName.pb.h"
+        
+        if {![file exists $cppfile] || ![file exists $header] || $cachedmodtime != $lastmodtime} {
+            set rule {
+                if { ![tmk::cleaning] } {
+                    # Done immediately rather than as a target so that the files are there when the cxx
+                    # module looks for things to compile
+        			cmd protoc --cpp_out=. $file
+                } else {
+                    file delete -force $baseName.pb.cc
+                    file delete -force $baseName.pb.h
+                }
+            }
+
+            target $baseName $file [subst -nocommands $rule]
+            depend $baseName $file
+            build $baseName  
+        }      
     }
 }
