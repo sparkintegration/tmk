@@ -15,6 +15,10 @@ eval_after {
         set cachedmodtime {}
         read_file [file join [tmk_output_dir] $baseName.mtime] cachedmodtime
         
+        if {![file exists [tmk_output_dir]]} {
+            file mkdir [tmk_output_dir]
+        }
+        
         catch { set lastmodtime [file mtime $file] }
         write_file [file join [tmk_output_dir] $baseName.mtime] lastmodtime
         
