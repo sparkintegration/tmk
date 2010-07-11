@@ -7,6 +7,8 @@
 
 lappend ::link::SYSLIBS protobuf
 
+set_ifndef PROJINCS {}
+
 eval_after {
     log_msg "Processing protocol buffer definitions"
     foreach file [glob -nocomplain "*.proto"] {
@@ -28,9 +30,20 @@ eval_after {
         if {![file exists $cppfile] || ![file exists $header] || $cachedmodtime != $lastmodtime} {
             set rule {
                 if { ![tmk::cleaning] } {
+                    
+                    set args {}
+                    
+                    foreach projinc \$protobuf::PROJINCS {
+                        lappend args "-I[file join $::PROJROOT \$projinc]"
+                    }
+                    
                     # Done immediately rather than as a target so that the files are there when the cxx
                     # module looks for things to compile
-        			cmd protoc --cpp_out=. $file
+                    if {\$args != {}} {
+        			    cmd protoc -I. [join \$args] --cpp_out=. $file
+    			    } else {
+    			        cmd protoc -I. --cpp_out=. $file
+    			    }
                 } else {
                     file delete -force $baseName.pb.cc
                     file delete -force $baseName.pb.h
