@@ -1,7 +1,6 @@
 config set link::MAKE_LIB 1
 config set link::MAKE_SHLIB 0
 config set link::SHLIB_OPTIONS lib_in_lib
-config set swig::SWIG /cross/osx/usr/bin/swig
 
 config proc filename_lib    { shortname } { return "lib${shortname}.a"  }
 config proc filename_shlib  { shortname } { return "lib${shortname}.so" }
@@ -9,233 +8,82 @@ config proc filename_shobj  { shortname } { return "${shortname}.so"    }
 config proc filename_obj    { shortname } { return "${shortname}.o"     }
 config proc filename_exe    { shortname } { return "${shortname}"       }
 
-config proc swig::java::libname {basename} { return $basename }
-config proc swig::python::libname {basename} { return $basename }
-config proc swig::csharp::libname {basename} { return $basename }
+config set swig::SWIG /cross/distrix3/osx/swig/bin/swig
 
-namespace eval lualib { 
-	config when_target os=osx { 
-		config set LIBPATH /cross/osx/usr/local/lib 
-		config set INCPATH /cross/osx/usr/local/include 
-		config set LIBS { lua } 
-	} 
+config proc swig::python::libname {basename} { return $basename }
+
+namespace eval zlib {
+    config set LIBS { z_spark }
+}
+
+namespace eval cjson {
+    config set LIBS { cJSON_spark m }
+}
+
+namespace eval graphviz {
+    config set LIBS { graphviz_spark }
 }
 
 namespace eval time {
-	config when_target os=osx {
-		config set LDFLAGS { -framework CoreFoundation }
-	}
-	
-	config when_target os=mswin {
-		config set LIBS { winmm }
-	}
-	
-	config when_target os=linux {
-		config set LIBS { rt }
-	}
+    config when_target os=mswin {
+        config set LIBS { winmm }
+    }
+    config when_target os=linux {
+        config when_target arch!=android {
+            config set LIBS { rt }
+        }
+    }
 }
 
-namespace eval filesystem {
-	config when_target os=osx {
-		config set LIBPATH /cross/osx/usr/lib
-	}
-	config set LIBS {boost_filesystem}
-}
-
-namespace eval regex {
-	config when_target os=osx {
-		config set LIBPATH /cross/osx/usr/lib
-	}
-	config set LIBS {boost_regex}
-}
-
-namespace eval configxx {
-	config when_target os=osx {
-		config set LIBPATH /cross/osx/usr/lib
-		config set INCPATH /cross/osx/usr/include
-	}
-	config set LIBS {config++}
+namespace eval pcre {
+    config set LIBS { pcre_spark }
 }
 
 namespace eval math {
-	config set LIBS {m}
-}
-
-namespace eval faad {
-	config when_target os=osx {
-		config set LIBPATH /cross/osx/usr/lib
-		config set INCPATH /cross/osx/usr/include
-	}
-	config set LIBS {faad}
+    config set LIBS { m }
 }
 
 namespace eval sqlite3 {
-	config when_target os=osx {
-		config set LIBPATH /cross/osx/usr/lib
-		config set INCPATH /cross/osx/usr/include
-	}
-	config set DEFS {_FILE_OFFSET_BITS=64}
-	config set DEPEND {math dynamicload}
-	config set LIBS {sqlite3_spark}
+    config set DEFS { _FILE_OFFSET_BITS=64 }
+    config set LIBS { sqlite3_spark }
+    
+    config when_target os=linux {
+        config set LIBS { sqlite3_spark dl }
+    }
 }
 
 namespace eval socket {
-	config when_target os=qnx {
-		config set LIBS {socket}
-	}
-	
-	config when_target os=mswin {
-		config set LIBS { ws2_32 }
-	}
-}
-
-namespace eval cppunit {
-	config set LIBS {cppunit}
-}
-      
-namespace eval atk {
-	config when_target os=osx {
-		config set INCPATH {/cross/osx/gtk/include/atk-1.0}
-	}
-	
-	config when_target os=qnx {
-		config set INCPATH /cross/qnx/target/usr/include/include-extra/atk-1.0
-	}
-	
-	config when_target os=mswin {
-		config set INCPATH {/cross/win32/gtk/include/atk-1.0}
-	}
-}
-
-namespace eval pango {
-	config when_target os=osx {
-		config set INCPATH {/cross/osx/gtk/include/pango-1.0}
-		config set LIBPATH {/cross/osx/gtk/lib}
-	}
-	
-	config when_target os=qnx {
-		config set INCPATH /cross/qnx/target/usr/include/include-extra/pango-1.0
-	}
-	
-	config when_target os=mswin {
-		config set INCPATH {/cross/win32/gtk/include/pango-1.0}
-		config set LIBPATH {/cross/win32/gtk/lib}
-	}
-	
-	config set LIBS {pango-1.0}
-}
-      
-namespace eval gtk {
-	config set DEPEND {atk pango glib}
-	
-	config when_target os=osx {
-		config set INCPATH {/cross/osx/gtk/include/gtk-2.0 /cross/osx/gtk/lib/gtk-2.0/include /cross/osx/gtk/include/cairo}
-		config set LIBPATH {/cross/osx/gtk/lib}
-		config set LIBS {gtk-quartz-2.0 gdk-quartz-2.0 gdk_pixbuf-2.0}
-	}
-	
-	config when_target os=qnx {
-		config set INCPATH /cross/qnx/target/usr/include/include-extra/gtk-2.0
-		config set LIBPATH [list /cross/qnx/target/x86/usr/lib/lib-extra/opt /cross/qnx/target/x86/usr/lib/lib-extra/X11]
-		config set LIBS {gtk-x11-2.0}
-	}
-	
-	config when_target os=mswin {
-		config set INCPATH {/cross/win32/gtk/include/gtk-2.0 /cross/win32/gtk/lib/gtk-2.0/include /cross/win32/gtk/include/cairo}
-		config set LIBPATH {/cross/win32/gtk/lib}
-		config set LIBS {gtk-win32-2.0 gdk-win32-2.0 gdk_pixbuf-2.0}
-	}
-}
-      
-namespace eval glib {
-	config when_target os=osx {
-		config set INCPATH {/cross/osx/gtk/include/glib-2.0 /cross/osx/gtk/lib/glib-2.0/include}
-		config set LIBPATH {/cross/osx/gtk/lib}
-	}
-	
-	config when_target os=qnx {
-		config set INCPATH /cross/qnx/target/usr/include/include-extra/glib-2.0
-	}
-	
-	config when_target os=mswin {
-		config set INCPATH {/cross/win32/gtk/include/glib-2.0 /cross/win32/gtk/lib/glib-2.0/include}
-		config set LIBPATH {/cross/win32/gtk/lib}
-	}
-	
-	config set LIBS {glib-2.0 gobject-2.0}
-}
-      
-namespace eval rtk {
-	config set DEPEND {gtk}
-	config when_target os=qnx {
-		config set INCPATH /cross/qnx/target/usr/include/include-extra/rtk
-	}
-}
-      
-namespace eval stage {
-	config set DEPEND {glib rtk}
-	
-	config when_target os=qnx {
-		config set INCPATH /cross/qnx/target/usr/include/include-extra/stage
-		config set LIBPATH /cross/qnx/target/x86/usr/lib/lib-extra/opt
-		config set LIBS {stage}
-	}
-}	
-
-namespace eval wx {
-    
-	config when_target os=osx {
-    	config set DEFS { _FILE_OFFSET_BITS=64 _LARGE_FILES __WXMAC__ }
-    	config set INCPATH { /cross/osx/usr/local/include /cross/osx/usr/local/lib/wx/include/mac-unicode-release-2.8 }
-    	config set LIBPATH /cross/osx/usr/local/lib
-    	config set LIBS { wx_macu-2.8 }
-	}
-    
     config when_target os=mswin {
-    	config set DEFS { __WXMSW__ }
-        config set INCPATH { /cross/win32/usr/local/include /cross/win32/lib/wx/include/i386-mingw32-msw-unicode-release-static-2.8 }
-        config set RESPATH /cross/win32/usr/local/include
-        config set LIBPATH /cross/win32/usr/local/lib
-        config set LDFLAGS { -Wl,--subsystem,windows -mwindows }
-        config set LIBS { wxexpat-2.8-i386-mingw32 wxjpeg-2.8-i386-mingw32 wxpng-2.8-i386-mingw32 wxregexu-2.8-i386-mingw32 wxtiff-2.8-i386-mingw32 wxzlib-2.8-i386-mingw32 winspool winmm wsock32 advapi32 comdlg32 comctl32 shell32 gdi32 uuid ole32 oleaut32 rpcrt4 wx_mswu-2.8-i386-mingw32 }
+        config set LIBS { ws2_32 }
     }
 }
 
-namespace eval opengl {
-	config when_target os=osx {
-    	config set LDFLAGS { -framework OpenGL }
-	}
-	
-	config when_target os=mswin {
-	    config set LDFLAGS { -lopengl32 }
-	    config set LIBS { opengl32 }
+namespace eval openssl {
+    config when_target os=osx {
+        config set LIBS { ssl_spark crypto_spark }
+    }
+    config when_target os=mswin {
+        config set LIBS { ssl_spark crypto_spark gdi32 ws2_32 }
+        config set DEPEND { socket }
+    }
+    config when_target os=linux {
+        config set LIBS { ssl_spark crypto_spark dl }
     }
 }
 
-namespace eval glut {
-	config when_target os=osx {
-    	config set LDFLAGS { -framework GLUT }
-	}
-	
-	config when_target os=mswin {
-    	config set LDFLAGS { -lglut32 -lglu32 }
-    	config set LIBS { glut32 glu32 }
-	}
+namespace eval bluetooth {
+    config when_target os=linux {
+        config set LIBS { bluetooth }
+    }
 }
 
-namespace eval simconnect {
-	config when_target os=mswin {
-    	config set LIBS { SimConnect }
-	}
+namespace eval seh {
+    config when_target os=mswin {
+        config set LIBS { seh }
+    }
 }
 
-namespace eval fltk {
-	config set DEPEND {opengl}
-	config set LIBS {fltk fltk_gl fltk_images fltk_png fltk_jpeg z}
-	
-	config when_target os=osx {
-		config set INCPATH {/cross/osx/fltk/include}
-		config set LIBPATH {/cross/osx/fltk/lib}
-		config set LDFLAGS { -framework Carbon -framework AGL }
-	}
+namespace eval event {
+    config set DEPEND { openssl socket time zlib }
+    config set LIBS { event_spark }
 }

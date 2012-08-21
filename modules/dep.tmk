@@ -1,0 +1,91 @@
+#    Title: Dep Module
+#         TMK module for building other project libraries as dependencies
+
+array set MODULE_PROJLIBS {}
+
+# alias dep::PROJLIBS to dep::MODULE_PROJLIBS(dep)
+upvar #0 ::dep::MODULE_PROJLIBS(dep) PROJLIBS
+
+proc get_dependencies { {mod ""} } {
+    if { $mod == "" } {
+        set projlibs {}
+        foreach { m libs } [array get ::dep::MODULE_PROJLIBS] {
+            lconcat projlibs $libs
+        }
+        return [lsort -unique $projlibs]
+    } elseif { [info exists ::dep::MODULE_PROJLIBS($mod)] } {
+        return $::dep::MODULE_PROJLIBS($mod)
+    }
+    return {}
+}
+
+proc build_projlibs_for_target { tgt projlibs {codelevel ""} } {
+    set oldBuildId $::__buildIdentifier
+    set ::__buildIdentifier "[clock seconds][clock clicks]"
+    set oldVisitedSubdirs $::tmk::visitedSubdirs
+    set ::tmk::visitedSubdirs {}
+    set req(os) [get_target_os $tgt]
+    set req(arch) [get_target_arch $tgt]
+    set req(board) [get_target_board $tgt]
+    
+    set currentdir [pwd]
+    foreach dir $projlibs {
+        set path [file join $::PROJROOT $dir]
+        if { $path != $currentdir } {
+            set oldArgs $::ARGS
+            lremove ::ARGS -os 1
+            lremove ::ARGS -arch 1
+            lremove ::ARGS -board 1
+
+            if { [string length $req(os)] > 0 } {
+                lappend ::ARGS -os $req(os)
+            }
+            if { [string length $req(arch)] > 0 } {
+                lappend ::ARGS -arch $req(arch)
+            }
+            if { [string length $req(board)] > 0 } {
+                lappend ::ARGS -board $req(board)
+            }
+            if { [string length $codelevel] > 0 } {
+                lremove ::ARGS -prf
+                lremove ::ARGS -dbg
+                lremove ::ARGS -std
+                lremove ::ARGS -opt
+                lremove ::ARGS -max
+                lappend ::ARGS -${codelevel}
+            }
+            
+            # fix pre- and post-modules
+            lremove ::ARGS -a 1
+            lremove ::ARGS -z 1
+            foreach mod [lsort -unique $::tmk::premodules] {
+                lappend ::ARGS -a $mod
+            }
+            foreach mod [lsort -unique $::tmk::postmodules] {
+                lappend ::ARGS -z $mod
+            }
+            
+            if { [::tmk::handle_subdirs $path $currentdir] } {
+                log_msg "back in directory $currentdir"
+            }
+            set ::ARGS $oldArgs
+        }
+    }
+    
+    set ::tmk::visitedSubdirs $oldVisitedSubdirs
+    set ::__buildIdentifier $oldBuildId
+}
+
+eval_after {
+    if { ![tmk::cleaning] } {
+        set currentdir [pwd]
+        foreach dir [::dep::get_dependencies] {
+            set path [file join $::PROJROOT $dir]
+            if { $path != $currentdir } {
+                if { [::tmk::handle_subdirs $path $currentdir] } {
+                    log_msg "back in directory $currentdir"
+                }
+            }
+        }
+    }
+}

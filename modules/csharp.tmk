@@ -1,0 +1,184 @@
+#    Variable: PATTERNS
+#        File suffixes that mark C# code files
+set_ifndef PATTERNS {*.cs}
+
+#    Variable: EXECUTABLES
+#        Specify executable names. This can be used to explicitly generate
+#        executables when <DETECT_EXE> is 0.
+set_ifndef EXECUTABLES {}
+#    Variable: PROJLIBS
+#        Paths to project libraries that the current build target depends on.
+#        These paths are relative to the `$::PROJROOT` directory and will be
+#        recursed into and built as needed.
+set_ifndef PROJLIBS {}
+
+set_ifndef SYSLIBS {}
+
+set_ifndef RUNLIBDIRS {}
+
+set_ifndef FLAGS {}
+
+set_ifndef DEBUG 1
+
+# auto-detect which source files will become executables
+proc is_executable {src} {
+    read_file $src txt
+    #eat c-style comments
+    regsub -all {\/\*.*?\*\/} $txt "" txt
+    set exp {^(?!.*(\/\/))\s*static\s+(public\s+)?void\s+Main\s*\(.*\)}
+    return [regexp -line -- $exp $txt]
+}
+
+proc unique_lib_name { dir } {
+    set dir [normalize_filename $dir]
+
+    regsub -all {/} $dir {_} dir
+    regsub -all {\.} $dir {} dir
+    return "${dir}"
+}
+
+proc make_generated_library {name} {
+    set rule {
+        set cmd [list cmd gmcs -out:[file join [tmk_output_dir] $name] -target:library]
+        if {\$csharp::DEBUG} {
+            lappend cmd -debug
+        }
+        set cmd [concat \$cmd [file join [tmk_output_dir] "*.cs"]]
+        uplevel \#0 \$cmd
+    }
+    
+    target $name {} [subst -nocommands $rule]
+    build $name
+}
+
+proc make_library {name srcs} {
+    set deps {}
+    foreach dir $csharp::PROJLIBS {
+        set libname "[unique_lib_name $dir].dll"
+        lappend deps [file join $::PROJROOT $dir [tmk_output_dir] $libname]
+    }
+    lconcat deps $csharp::SYSLIBS
+    set rule {
+        set cmd [list cmd gmcs -out:[file join [tmk_output_dir] $name] -target:library]
+        if {\$csharp::DEBUG} {
+            lappend cmd -debug
+        }
+        set cmd [concat \$cmd $srcs]
+        foreach dep {$deps} {
+            lappend cmd -r:\$dep
+        }
+        foreach flag \$csharp::FLAGS {
+            lappend cmd \$flag
+        }
+        uplevel \#0 \$cmd
+    }
+
+    target $name $srcs [subst -nocommands $rule]
+    depend $name $csharp::PROJLIBS
+    build $name
+}
+
+proc get_dep_paths {deps} {
+    set paths {}
+    foreach d $deps {
+        set path [file dirname $d]
+        if { [file pathtype $path] != "absolute" } {
+            set path [file join $::PROJROOT $path]
+        }
+        lappend paths $path
+    }
+    return [join [lsort -unique $paths] ":"]
+}
+
+proc link {src dest} {
+    set destpath [file join $dest [file tail $src]]
+    if {![file exists $destpath]} {
+        file link -symbolic $destpath $src
+    }
+}
+
+proc make_exe {src deps} {
+    set exename "[file rootname $src].exe"
+    
+    foreach dir $csharp::PROJLIBS {
+        set libname "[unique_lib_name $dir].dll"
+        lappend deps [file join $::PROJROOT $dir [tmk_output_dir] $libname]
+    }
+    set projdeps $deps ; # TODO at the moment these not transitive, but they should be
+    lconcat deps $csharp::SYSLIBS
+    
+    set rule {
+        set cmd [list cmd gmcs -out:[file join [tmk_output_dir] $exename] -target:exe $src]
+        if {\$csharp::DEBUG} {
+            lappend cmd -debug
+        }
+        set paths [csharp::get_dep_paths {$deps}]
+        set syslibpaths [csharp::get_dep_paths {$csharp::SYSLIBS}]
+        set runlibdirs [join [lsort -unique $csharp::RUNLIBDIRS] ":"]
+        set wrapper "#!/bin/sh
+export DYLD_LIBRARY_PATH=\${syslibpaths}:\${runlibdirs}:\\\$DYLD_LIBRARY_PATH
+export LD_LIBRARY_PATH=\${syslibpaths}:\${runlibdirs}:\\\$LD_LIBRARY_PATH
+export MONO_PATH=\${paths}:\\\$MONO_PATH
+prefix=`dirname \\\${0}`
+mono \\\${prefix}/${exename} \\"\\\${@}\\"
+"
+        set wrapperfile [file join [tmk_output_dir] [file rootname $src]]
+        write_file \$wrapperfile wrapper
+        file attributes \$wrapperfile -permissions rwxr-xr-x
+        foreach dep {$deps} {
+            lappend cmd -r:\$dep
+        }
+        foreach flag \$csharp::FLAGS {
+            lappend cmd \$flag
+        }
+        uplevel \#0 \$cmd
+        
+        foreach dep {$projdeps} {
+            csharp::link \$dep [tmk_output_dir]
+        }
+    }
+
+    target $exename $src [subst -nocommands $rule]
+    depend $exename $deps
+    depend $exename $csharp::PROJLIBS
+    build $exename
+}
+
+eval_after {
+    
+    if {! [lcontains $::tmk::cmdLineTargets clean]} {
+        
+        set local_libname [unique_lib_name $SUBDIR]
+        
+        # auto-detect source files by file patterns?
+        set libsrc {}
+        set exesrc {}
+
+        set srcs {}
+        foreach pat $PATTERNS {
+            foreach src [glob -nocomplain $pat] {
+                lappend srcs $src
+            }
+        }
+        foreach src $srcs {
+            if {[is_executable $src]} {
+                lappend exesrc $src
+            } else {
+                lappend libsrc $src
+            }
+        }
+        
+        set exe_deps {}
+        
+        if {[llength $libsrc] > 0} {
+            set libname "$local_libname.dll"
+            make_library $libname $libsrc
+            set depname [file join [pwd] [tmk_output_dir] $libname]
+            lappend exe_deps $depname
+        }
+        
+        foreach exe $exesrc {
+            make_exe $exe $exe_deps
+        }
+    }
+}

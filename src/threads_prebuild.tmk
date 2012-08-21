@@ -1,0 +1,22 @@
+set ::tmk::hasThreadPool 0
+
+proc ::tmk::init_threaded {threads} {
+}
+
+proc ::tmk::start_threaded {} {
+}
+
+proc ::tmk::wait_all_threads {} {
+}
+
+proc ::tmk::stop_threaded {} {
+}
+
+proc cmd_thread {args} {
+    set prebuildFile [open $::PREBUILD_FILE "a"]
+    puts $prebuildFile "{{cd [pwd]} $args}"
+    close $prebuildFile
+}
+
+proc ::tmk::destroy_threaded {} {
+}

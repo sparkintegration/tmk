@@ -1,14 +1,14 @@
-#	The Objective-C module inherits its behaviour from the <C Module>.
+#    The Objective-C module inherits its behaviour from the <C Module>.
 
 module c
 
 if {! [lcontains $::tmk::cmdLineTargets clean]} {
-	
-	#	Variable: c::PATTERNS
-	#		Add Objective-C (.m) files to the list
-	lappend c::PATTERNS *.m
-	
-	#	Variable: link::FLAGS
-	#		Add the necessary Objective-C flags
-	lappend link::FLAGS -framework Foundation -fobjc-exceptions
+    
+    #    Variable: c::PATTERNS
+    #        Add Objective-C (.m) files to the list
+    lappend c::PATTERNS *.m
+    
+    #    Variable: link::FLAGS
+    #        Add the necessary Objective-C flags
+    lappend link::FLAGS -framework Foundation -fobjc-exceptions
 }

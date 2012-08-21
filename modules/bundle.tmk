@@ -1,73 +1,59 @@
 # -*-Mode: tcl -*-
 
-#	Variable: EXES
-#		List of executables to be included in the distribution
-set_ifndef EXES {}
+#    Variable: AUTO
+#        If 1, build bundles automatically
+set_ifndef AUTO 1
 
-#	Variable: APPNAME
-#		Application name (must match the name of one executable, defaulting
-#		to the first)
-set_ifndef APPNAME ""
-proc set_appname {} {
-    
-    if { $bundle::APPNAME == "" } {
-        set bundle::APPNAME [lindex $bundle::EXES 0]
-    }
-    
-	set bundle::BP [tmk_output_dir]
-}
+#    Variable: BUNDLES
+#        The list of information arrays for each bundle to be built; the members
+#        of each entry are described below
+set_ifndef BUNDLES {}
 
-#	Variable: DESCRIPTION
-#		Application description string
-set_ifndef DESCRIPTION ""
-
-#	Variable: VERSION
-#		Application version string
-set_ifndef VERSION "0.0.0"
-
-#	Variable: EXCLUDE_DIRS
-#		List of `[string match]` patterns from which libraries should *not* be
-#		copied
-set_ifndef EXCLUDE_DIRS { /usr/lib* /System* }
-
-#	Variable: PLIST
-#		The path to a custom plist file can be provided in this variable, or a
-#		default will be generated
-set_ifndef PLIST ""
-
-#	Variable: ICON
-#		A custom icon file can be provided, or it can be included in the other
-#		resources and specified with a custom plist
-set_ifndef ICON ""
-
-#	Variable: RESOURCES
-#		List of resources to include
-set_ifndef RESOURCES {}
-
-#	Variable: SO_RESOURCES
-#		List of shared object resources to include (these will have install
-#		names patched)
-set_ifndef SO_RESOURCES {}
-
-#	Variable: SHARED_SUPPORT
-#		List of additional files to include (in SharedSupport)
-set_ifndef SHARED_SUPPORT {}
+#    Variable: EXES
+#        List of executables to be included in the distribution
+#    Variable: APPNAME
+#        Application name (must match the name of one executable, defaulting
+#        to the first)
+#    Variable: DESCRIPTION
+#        Application description string
+#    Variable: VERSION
+#        Application version string
+#    Variable: EXCLUDE_DIRS
+#        List of `[string match]` patterns from which libraries should *not* be
+#        copied
+#    Variable: PLIST
+#        The path to a custom plist file template can be provided in this
+#        variable, or a default will be generated
+#    Variable: ICON
+#        A custom icon file can be provided, or it can be included in the other
+#        resources and specified with a custom plist
+#    Variable: RESOURCES
+#        List of resources to include; if a resource is specified as {src dst}
+#        then the src file will be put into the relative dst in the Resources
+#        directory
+#    Variable: SO_RESOURCES
+#        List of shared object resources to include (these will have install
+#        names patched)
+#    Variable: SHARED_SUPPORT
+#        List of additional files to include (in SharedSupport)
+#    Variable: OWNER
+#        The owner of the bundle (for the copyright)
+#    Variable: IDENTITY
+#        The identity root for the bundle identifier (e.g. com.sparkintegration)
 
 set_ifndef CONTENTSDIR Contents
 
 # relative binary dir
-set_ifndef BINDIR $CONTENTSDIR/MacOS
+set_ifndef BINDIR ${CONTENTSDIR}/MacOS
 
 # relative resources dir
-set_ifndef RESDIR $CONTENTSDIR/Resources
+set_ifndef RESDIR ${CONTENTSDIR}/Resources
 
 # relative shared support dir
-set_ifndef SSDIR $CONTENTSDIR/SharedSupport
+set_ifndef SSDIR ${CONTENTSDIR}/SharedSupport
 
 # relative library dir
 set_ifndef LIBDIR $BINDIR
-
-set_ifndef BP ""
 
 if { $::TARGET_OS != "osx" } {
     exit_msg "Currently bundles are only supported on OS X"
@@ -88,48 +74,42 @@ if [catch {set_ifndef PLUTIL "[exec which plutil]"} msg] {
     exit_msg "Could not find the 'plutil' binary for module bundle\n  $msg"
 }
 
-# ensure there is enough space for changing the install names
-lappend ::link::FLAGS -headerpad_max_install_names
-
 # copy files
 proc copy_files_to_app { files dir } {
-
     if { [llength $files] == 0 } {
         return
     }
 
-    puts "Copying (in [pwd]):"
-    foreach file $files {
-        puts "${file}"
-        
-        # create directory if necessary
-        file mkdir $dir
-        # copy content
-        set res [catch {exec cp -f $file $dir} msg]
-        if $res {
-       	    exit_msg "cp call failed: ${msg}"
+    log_msg "Copying (in [pwd]):"
+    foreach f $files {
+        log_msg "\t${f}"
+        set src $f
+        set dst $dir
+        if { [llength $f] == 2 } {
+            set src [lindex $f 0]
+            set dst [file join $dir [lindex $f 1]]
         }
+        # create directory if necessary
+        file mkdir $dst
+        # copy content
+        file copy -force -- $src $dst
     }
-
 }
 
 # get all shared libs and exclude those from the EXCLUDE_DIRS
-proc get_relevant_libs { exe } {
-
+proc get_relevant_libs { exe exclude_dirs } {
     set libs {}
-    set files [get_shared_libs $exe $libs]
-    ::tmk::exclude_from_list files $::bundle::EXCLUDE_DIRS "Excluded directories for bundle"
+    set files [::bundle::get_shared_libs $exe $libs $exclude_dirs]
+    ::tmk::exclude_from_list files $exclude_dirs "Excluded directories for bundle"
     return $files
-
 }
 
 # procedure to recursively determine all referenced libraries by parsing the otool output
-proc get_shared_libs { file libs } {
-
+proc get_shared_libs { item libs exclude_dirs } {
     # execute otool
-    set res [catch {exec $::bundle::OTOOL -L $file 2>@stdout} msg]
+    set res [catch {exec $::bundle::OTOOL -L $item 2>@stdout} msg]
     if $res {
-	    exit_msg "bundle::OTOOL call failed: $msg"
+        exit_msg "bundle::OTOOL call failed: $msg"
     }
     
     # extract full library names
@@ -145,12 +125,12 @@ proc get_shared_libs { file libs } {
             lappend these_libs $lib
         }
     }
-	::tmk::exclude_from_list these_libs $::bundle::EXCLUDE_DIRS "Excluded directories for bundle"
+    ::tmk::exclude_from_list these_libs $exclude_dirs "Excluded directories for bundle"
     set libs [concat $libs $these_libs]
     
     # recurse into referenced libraries
     foreach lib $these_libs {
-        set recursive_libs [get_shared_libs $lib $libs]
+        set recursive_libs [::bundle::get_shared_libs $lib $libs $exclude_dirs]
         foreach rlib $recursive_libs {
             if { [lsearch -exact $libs $rlib] >= 0 } {
                 continue
@@ -164,68 +144,66 @@ proc get_shared_libs { file libs } {
 }
 
 proc patch_install_names { libs exes libdir bindir } {
-    
     # iterate over each library
     foreach lib $libs {
         set lib_file [file tail $lib]
-        puts "${lib_file}"
-        set lib_loc $libdir/$lib_file
+        log_msg "${lib_file}"
+        set lib_loc [file join $libdir $lib_file]
         
         # patch current library
         set inst_name [lindex [split [exec $::bundle::OTOOL -D $lib_loc] "\n"] 1]
         set inst_name_dir [file dirname $inst_name]
-        set res [catch {exec $bundle::INST_NAME_TOOL -id "@executable_path/${lib_file}" "${lib_loc}"} msg]
+        set res [catch {exec $::bundle::INST_NAME_TOOL -id "@executable_path/${lib_file}" "${lib_loc}"} msg]
         if $res {
-       	    exit_msg "${bundle::INST_NAME_TOOL} call failed: ${msg}"
+               exit_msg "${::bundle::INST_NAME_TOOL} call failed: ${msg}"
         }
         
         # patch all cross-references in other libraries
         foreach other_lib $libs {
             set other_lib_file [file tail $other_lib]
-            puts "    > ${other_lib_file}"
-            set other_lib_loc $libdir/$other_lib_file
-            set res [catch {exec $bundle::INST_NAME_TOOL -change "${inst_name_dir}/${lib_file}" "@executable_path/${lib_file}" "${other_lib_loc}"} msg]
+            log_msg "    > ${other_lib_file}"
+            set other_lib_loc [file join $libdir $other_lib_file]
+            set res [catch {exec $::bundle::INST_NAME_TOOL -change "${inst_name_dir}/${lib_file}" "@executable_path/${lib_file}" "${other_lib_loc}"} msg]
             if $res {
-           	    exit_msg "${bundle::INST_NAME_TOOL} call failed: ${msg}"
+                   exit_msg "${::bundle::INST_NAME_TOOL} call failed: ${msg}"
             }
         }
         
         # patch executables
         foreach exe $exes {
-            puts "    * ${exe}"
-            set exe $bindir/$exe
-            set res [catch {exec $bundle::INST_NAME_TOOL -change "${inst_name_dir}/${lib_file}" "@executable_path/${lib_file}" "${exe}"} msg]
+            log_msg "    * ${exe}"
+            set exe [file join $bindir $exe]
+            set res [catch {exec $::bundle::INST_NAME_TOOL -change "${inst_name_dir}/${lib_file}" "@executable_path/${lib_file}" "${exe}"} msg]
             if $res {
-           	    exit_msg "${bundle::INST_NAME_TOOL} call failed: ${msg}"
+                   exit_msg "${::bundle::INST_NAME_TOOL} call failed: ${msg}"
             }
         }
     }
 }
 
 proc patch_so_install_names { libs sos sodir bindir } {
-    
     # iterate over each library
     foreach lib $libs {
         set lib_file [file tail $lib]
-        puts "${lib_file}"
+        log_msg "${lib_file}"
         
         set inst_name [lindex [split [exec $::bundle::OTOOL -D $lib] "\n"] 1]
         set inst_name_dir [file dirname $inst_name]
         
         # patch shared objects
         foreach so $sos {
-			set so [file tail $so]
-            puts "    * ${so}"
-            set so $sodir/$so
-            set res [catch {exec $bundle::INST_NAME_TOOL -change "${inst_name_dir}/${lib_file}" "@executable_path/${lib_file}" "${so}"} msg]
+            set so [file tail $so]
+            log_msg "    * ${so}"
+            set so [file join $sodir $so]
+            set res [catch {exec $::bundle::INST_NAME_TOOL -change "${inst_name_dir}/${lib_file}" "@executable_path/${lib_file}" "${so}"} msg]
             if $res {
-           	    exit_msg "${bundle::INST_NAME_TOOL} call failed: ${msg}"
+                   exit_msg "${::bundle::INST_NAME_TOOL} call failed: ${msg}"
             }
         }
     }
 }
 
-proc generate_plist {} {
+proc generate_plist { name description icon version id_root owner {template ""} } {
     # xml entities
     array set xml_entities {
         "\""    "&quot;"
@@ -237,20 +215,26 @@ proc generate_plist {} {
     
     # generate needed field values
     array set search_replace [subst {
-        "%SHORT_NAME%"          {[string range [regsub -all {[^[:alnum:].-]} $bundle::APPNAME \"\"] 0 14]}
-        "%DISP_NAME%"           "$bundle::APPNAME"
-        "%EXE_NAME%"            "$bundle::APPNAME"
-        "%DESCRIPTION%"         "$bundle::DESCRIPTION"
-        "%ICON%"                {[file tail $bundle::ICON]}
-        "%INTERNAL_VERSION%"    {[regsub -all {[^[:digit:].]} $bundle::VERSION ""]}
-        "%VERSION%"             "$bundle::VERSION"
+        "%SHORT_NAME%"          {[string range [regsub -all {[^[:alnum:].-]} $name \"\"] 0 14]}
+        "%DISP_NAME%"           "$name"
+        "%EXE_NAME%"            "$name"
+        "%DESCRIPTION%"         "$description"
+        "%ICON%"                {[file tail $icon]}
+        "%INTERNAL_VERSION%"    {[regsub -all {[^[:digit:].]} $version ""]}
+        "%VERSION%"             "$version"
         "%YEAR%"                {[exec date +%Y]}
-        "%SIGNATURE%"           {[string tolower [string range $bundle::APPNAME 0 3]]}
+        "%SIGNATURE%"           {[string tolower [string range $name 0 3]]}
+        "%IDENTITY_ROOT%"        "$id_root"
+        "%OWNER%"                "$owner"
     }]
     
     # load template
-    set xml [exec cat "$::tmk::dir/modules/Info.template.plist"]
-    
+    if { $template == "" } {
+        read_file [file join $::tmk::dir modules Info.template.plist] xml
+    } else {
+        read_file $template xml
+    }
+
     # perform template replacement
     foreach { tag value } [array get search_replace] {
         # format xml entities
@@ -262,93 +246,144 @@ proc generate_plist {} {
     }
     
     # write out resulting XML property list
-    set xml_plist_path ${bundle::APPNAME}.app/${bundle::CONTENTSDIR}/Info.plist
-    set xml_plist [open $xml_plist_path "w"]
-    puts $xml_plist $xml
-    close $xml_plist
+    set xml_plist_path [file join ${name}.app $::bundle::CONTENTSDIR Info.plist]
+    write_file $xml_plist_path xml
     
     # check plist format
-    set res [catch {exec $bundle::PLUTIL -lint $xml_plist_path} msg]
+    set res [catch {exec $::bundle::PLUTIL -lint $xml_plist_path} msg]
     if $res {
-   	    exit_msg "${bundle::PLUTIL} check failed: ${msg}"
+           exit_msg "${::bundle::PLUTIL} check failed: ${msg}"
     }
     
     # convert to binary plist
-    set res [catch {exec $bundle::PLUTIL -convert binary1 $xml_plist_path} msg]
+    set res [catch {exec $::bundle::PLUTIL -convert binary1 $xml_plist_path} msg]
     if $res {
-   	    exit_msg "${bundle::PLUTIL} call failed: ${msg}"
+           exit_msg "${::bundle::PLUTIL} call failed: ${msg}"
     }
-    
 }
 
-# --------------
-#   begin main 
-# --------------
-target bundle_app { $bundle::EXES } {
-    
-    puts "Bundling application...."
-	set origdir [pwd]
-    bundle::set_appname
-    cd $bundle::BP
-    
-    puts "Copying executables...."
-    bundle::copy_files_to_app $bundle::EXES $bundle::APPNAME.app/$bundle::BINDIR
-    
-    puts "Copying libraries...."
-    # find, then copy libs
-    set libs {}
-    foreach exe $bundle::EXES {
-        set exe_libs [bundle::get_relevant_libs $exe]
-        set libs [concat $libs $exe_libs]
+proc make_bundle { bundle_var } {
+    upvar $bundle_var bndl
+    if { ![info exists bndl(APPNAME)]} {
+        set bndl(APPNAME)            [file tail [lindex $bndl(EXES) 0]]
     }
-    lsort -unique $libs
-    bundle::copy_files_to_app $libs $bundle::APPNAME.app/$bundle::LIBDIR
-    
-    puts "Patching library and executable install names...."
-    bundle::patch_install_names $libs $bundle::EXES $bundle::APPNAME.app/$bundle::LIBDIR $bundle::APPNAME.app/$bundle::BINDIR
-    
-    puts "Copying resources...."
-    if { $bundle::ICON != "" } {
-        lappend bundle::RESOURCES $bundle::ICON
+    if { ![info exists bndl(DESCRIPTION)]} {
+        set bndl(DESCRIPTION)        ""
     }
+    if { ![info exists bndl(VERSION)]} {
+        set bndl(VERSION)            "1.0.0"
+    }
+    if { ![info exists bndl(EXCLUDE_DIRS)]} {
+        set bndl(EXCLUDE_DIRS)        { /usr/lib* /System* }
+    }
+    if { ![info exists bndl(PLIST)]} {
+        set bndl(PLIST)                ""
+    }
+    if { ![info exists bndl(ICON)]} {
+        set bndl(ICON)                ""
+    }
+    if { ![info exists bndl(RESOURCES)]} {
+        set bndl(RESOURCES)            {}
+    }
+    if { ![info exists bndl(SO_RESOURCES)]} {
+        set bndl(SO_RESOURCES)        {}
+    }
+    if { ![info exists bndl(SHARED_SUPPORT)]} {
+        set bndl(SHARED_SUPPORT)    {}
+    }
+    if { ![info exists bndl(OWNER)]} {
+        set bndl(OWNER)                "Spark Integration Technologies Inc."
+    }
+    if { ![info exists bndl(IDENTITY_ROOT)]} {
+        set bndl(IDENTITY_ROOT)        "com.sparkintegration"
+    }
+    
+    set rule {
+        set exes {$bndl(EXES)}
+        set name "$bndl(APPNAME)"
+        set app_name \${name}.app
+        set icon "$bndl(ICON)"
+        set resources {$bndl(RESOURCES)}
+        set so_resources {$bndl(SO_RESOURCES)}
+        
+        log_msg "Bundling \${exes}...."
+        set origdir [pwd]
+        cd [tmk_output_dir]
 
-	set tmp $bundle::RESOURCES
-	set bundle::RESOURCES {}
-	foreach resource $tmp {
-		if [file exists $resource] {
-			lappend bundle::RESOURCES $resource
-		} else {
-			set path [file join $origdir $resource]
-			if [file exists $path] {
-				lappend bundle::RESOURCES $path
-			} else {
-				exit_msg "Could not find resource $resource"
-			}
-		}
-	}
+        log_msg "Copying executables...."
+        ::bundle::copy_files_to_app \$exes [file join \$app_name \$::bundle::BINDIR]
 
-    set bundle::RESOURCES [concat $bundle::RESOURCES $bundle::SO_RESOURCES]
-    bundle::copy_files_to_app $bundle::RESOURCES $bundle::APPNAME.app/$bundle::RESDIR
-    bundle::copy_files_to_app $bundle::SHARED_SUPPORT $bundle::APPNAME.app/$bundle::SSDIR
+        log_msg "Copying libraries...."
+        # find, then copy libs
+        set libs {}
+        foreach exe \$exes {
+            set exe_libs [::bundle::get_relevant_libs \$exe {$bndl(EXCLUDE_DIRS)}]
+            set libs [concat \$libs \$exe_libs]
+        }
+        set libs [lsort -unique \$libs]
+        ::bundle::copy_files_to_app \$libs [file join \$app_name \$::bundle::LIBDIR]
 
-    if { [llength $bundle::SO_RESOURCES] > 0 } {
-        puts "Patching shared object install names...."
-        bundle::patch_so_install_names $libs $bundle::SO_RESOURCES $bundle::APPNAME.app/$bundle::RESDIR $bundle::APPNAME.app/$bundle::BINDIR
+        log_msg "Patching library and executable install names...."
+        ::bundle::patch_install_names \$libs \$exes [file join \$app_name \$::bundle::LIBDIR] [file join \$app_name \$::bundle::BINDIR]
+
+        log_msg "Copying resources...."
+        if { \$icon != "" } {
+            lappend resources \$icon
+        }
+
+        set tmp \$resources
+        set resources {}
+        foreach resource \$tmp {
+            set src \$resource
+            if { [llength \$resource] == 2 } {
+                set src [lindex \$resource 0]
+            }
+            if [file exists \$src] {
+                lappend resources \$resource
+            } else {
+                set path [file join \$origdir \$src]
+                if [file exists \$path] {
+                    if { [llength \$resource] == 2 } {
+                        lappend resources [list \$path [lindex \$resource 1]]
+                    } else {
+                        lappend resources \$path
+                    }
+                } else {
+                    exit_msg "Could not find resource \$src"
+                }
+            }
+        }
+
+        lconcat resources \$so_resources
+        ::bundle::copy_files_to_app \$resources [file join \$app_name \$::bundle::RESDIR]
+        ::bundle::copy_files_to_app {$bndl(SHARED_SUPPORT)} [file join \$app_name \$::bundle::SSDIR]
+
+        if { [llength \$so_resources] > 0 } {
+            log_msg "Patching shared object install names...."
+            ::bundle::patch_so_install_names \$libs \$so_resources [file join \$app_name \$::bundle::RESDIR] [file join \$app_name \$::bundle::BINDIR]
+        }
+
+        log_msg "Generating plist...."
+        ::bundle::generate_plist \$name "$bndl(DESCRIPTION)" \$icon "$bndl(VERSION)" "$bndl(IDENTITY_ROOT)" "$bndl(OWNER)" "$bndl(PLIST)"
+
+        cd \$origdir
+        log_msg "Done."
     }
-    
-    if { $bundle::PLIST == "" } {
-        puts "Generating plist...."
-        bundle::generate_plist
-    } else {
-        puts "Copying plist...."
-        bundle::copy_files_to_app $bundle::PLIST $bundle::APPNAME.app/$bundle::CONTENTSDIR/Info.plist
-    }
-    
-    if { $bundle::BP != "" } {
-        cd ..
-    }
-    puts "Done."
+    target ${bndl(APPNAME)}.app $bndl(EXES) [subst -nocommands $rule]
+    return [file join [tmk_output_dir] ${bndl(APPNAME)}.app]
 }
 
-build bundle_app
+proc make_bundles {} {
+    set bndls {}
+    foreach b $::bundle::BUNDLES {
+        lappend bndls [::bundle::make_bundle b]
+    }
+}
 
+eval_after {
+    if { ![::tmk::cleaning] && $::bundle::AUTO } {
+        foreach b [::bundle::make_bundles] {
+            build $b
+        }
+    }
+}

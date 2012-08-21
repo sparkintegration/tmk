@@ -2,38 +2,41 @@ config proc filename_shlib  { shortname } { return "lib${shortname}.so" }
 
 config set cxx::COMPILER  linuxgcc
 config set c::COMPILER    linuxgcc
+config set java::COMPILER javac
 config set ::cxx::KEYED_FLAGS(visibility) -fvisibility=hidden
 
 namespace eval dynamicload {
-	config set LIBS { dl }
+    config set LIBS { dl }
 }
 
 namespace eval threads {
-	config set LIBS { pthread }
+    config when_target arch!=android {
+        config set LIBS { pthread }
+    }
 }
 
 namespace eval rt {
-	config set LIBS { rt }
+    config when_target arch!=android {
+        config set LIBS { rt }
+    }
 }
 
-config set swig::EXCLUDE_LANGS csharp
-
-config set swig::java::CFLAGS {-I/cross/linux/usr/include/java-include -I/cross/linux/usr/include/java-include/linux}
-config set swig::java::LDFLAGS {}
-config proc swig::java::libname {basename} {
-	return lib$basename.so
-}
-
-config set swig::python::CFLAGS -I/cross/linux/usr/include/python-include
+config set swig::python::CFLAGS -I/cross/distrix3/linux/usr/include/python-include
 config set swig::python::LDFLAGS {}
 config proc swig::python::libname {basename} {
-	return _$basename.so
+    return _$basename.so
 }
 
-config when_target arch=gumstix {
+config when_target arch=x86_64 {
+    config set cxx::COMPILER  linux64gcc
+    config set c::COMPILER    linux64gcc
 
-	config set cxx::COMPILER  gumstixgcc
-	config set c::COMPILER    gumstixgcc
+    config set swig::python::CFLAGS -I/cross/distrix3/linux64/usr/include/python2.5
+}
 
-    config set swig::EXCLUDE_LANGS {csharp java python}
+config when_target arch=redhat_64 {
+    config set swig::python::CFLAGS -I/cross/distrix3/redhat64/usr/include/python2.4
+
+    config set cxx::COMPILER  redhat64gcc
+    config set c::COMPILER    redhat64gcc
 }

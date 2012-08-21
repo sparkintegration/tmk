@@ -1,0 +1,212 @@
+#    Title: Binary Packing Module
+#
+# =========================================================================
+#
+#         TMK module for creating packed binary files
+# =========================================================================
+
+#    Variable: SUFFIX
+#        The file extension for binary definition files
+set_ifndef SUFFIX .bdf
+
+set ITEMS {}
+
+proc endian_handler { endianness } {
+    lappend bin::ITEMS [list endian $endianness]
+}
+
+proc int_handler { size {value 0} } {
+    lappend bin::ITEMS [list int $size $value]
+}
+
+proc str_handler { {value ""} } {
+    lappend bin::ITEMS [list str $value]
+}
+
+proc array_handler { size {values {}} } {
+    lappend bin::ITEMS [list array $size $values]
+}
+
+proc ip_handler { {addr 0.0.0.0} } {
+    lappend bin::ITEMS [list ip $addr]
+}
+
+proc mac_handler { {addr 00:00:00:00:00:00} } {
+    lappend bin::ITEMS [list mac $addr]
+}
+
+proc uuid_handler { {id 0-0-0} } {
+    lappend bin::ITEMS [list uuid $id]
+}
+
+proc preprocess { bdfFile } {
+    read_file $bdfFile bdf
+    return $bdf
+}
+
+proc process { bdf } {
+    interp create -safe bdfParser
+    bdfParser alias endian bin::endian_handler
+    bdfParser alias int bin::int_handler
+    bdfParser alias str bin::str_handler
+    bdfParser alias array bin::array_handler
+    bdfParser alias ip bin::ip_handler
+    bdfParser alias mac bin::mac_handler
+    bdfParser alias uuid bin::uuid_handler
+    
+    # evaluate the BDF
+    bdfParser eval $bdf
+    
+    interp delete bdfParser
+}
+
+proc platform_endianness {} {
+    return "little"
+}
+
+proc put_int { str size value endianness } {
+    upvar $str out
+    
+    switch $size {
+        8    {
+            set fmt "c"
+        }
+        16    {
+            if { $endianness == "big" } {
+                set fmt "S"
+            } else {
+                set fmt "s"
+            }
+        }
+        32    {
+            if { $endianness == "big" } {
+                set fmt "I"
+            } else {
+                set fmt "i"
+            }
+        }
+        64    {
+            if { $endianness == "big" } {
+                set fmt "W"
+            } else {
+                set fmt "w"
+            }
+        }
+        default {
+            exit_msg "Invalid integer size: ${size}"
+        }
+    }
+    set val [binary format $fmt [expr $value]]
+    
+    set out "${out}${val}"
+}
+
+proc put_str { str value } {
+    upvar $str out
+    set val [binary format "a*" $value]
+    
+    set out "${out}${val}"
+}
+
+proc put_array { str size values endianness } {
+    upvar $str out
+    
+    foreach i $values {
+        put_int out $size $i $endianness
+    }
+}
+
+proc put_ip { str addr endianness } {
+    upvar $str out
+    
+    # IPv4 regex source: http://wiki.tcl.tk/989
+    set octet {(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])}
+    set ipv4re "^[join [list $octet $octet $octet $octet] {\.}]\$"
+    
+    # set ipv6re {^\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$}
+    
+    if { [regexp $ipv4re $addr val first second third fourth] } {
+        if { $endianness == "big" } {
+            set val [binary format "cccc" $first $second $third $fourth]
+        } else {
+            set val [binary format "cccc" $fourth $third $second $first]
+        }
+    } else {
+        exit_msg "Invalid IP address: ${addr}"
+    }
+    
+    set out "${out}${val}"
+}
+
+proc put_mac { str addr } {
+    upvar $str out
+    
+    set octet {([[:xdigit:]]{1,2})}
+    set macre "^[join [list $octet $octet $octet $octet $octet $octet] {[:-]}]\$"
+
+    if { [regexp $macre $addr val first second third fourth fifth sixth] } {
+        set val [binary format "HHHHHH" $first $second $third $fourth $fifth $sixth]
+    } else {
+        exit_msg "Invalid MAC address: ${addr}"
+    }
+    
+    set out "${out}${val}"
+}
+
+proc put_uuid { str id endianness } {
+    upvar $str out
+    
+    if { [regexp {^(\d+)-(\d+)-(\d+)$} $id all first second third] } {
+        put_int out 32 $first $endianness
+        put_int out 32 $second $endianness
+        put_int out 32 $third $endianness
+    } else {
+        exit_msg "Invalid UUID: ${id}"
+    }
+}
+
+proc generate { bdfFile } {
+    set outFile [file rootname $bdfFile].bin
+    set outString ""
+    
+    set endianness [platform_endianness]
+    foreach item $bin::ITEMS {
+        switch [lindex $item 0] {
+            "endian"    { set endianness [lindex $item 1] }
+            "int"        { put_int outString [lindex $item 1] [lindex $item 2] $endianness }
+            "str"        { put_str outString [lindex $item 1] }
+            "array"        { put_array outString [lindex $item 1] [lindex $item 2] $endianness }
+            "ip"        { put_ip outString [lindex $item 1] $endianness }
+            "mac"        { put_mac outString [lindex $item 1] }
+            "uuid"        { put_uuid outString [lindex $item 1] $endianness }
+        }
+    }
+    
+    set rule {
+        set origdir [pwd]
+        cd \$::PROJROOT/\$::SUBDIR
+
+        set out [open \$TARGET "w"]
+        fconfigure \$out -translation binary
+        puts -nonewline \$out "${outString}"
+        close \$out
+
+        cd \$origdir
+    }
+    target $outFile $bdfFile [subst -nocommands $rule]
+    build $outFile
+}
+
+# --------------
+#    begin main 
+# --------------
+eval_after {
+    if { ![tmk::cleaning] } {
+        foreach src [glob -nocomplain *$bin::SUFFIX] {
+            set bin::ITEMS {}
+            set bdf [bin::preprocess $src]
+            bin::process $bdf
+            bin::generate $src
+        }
+    }
+}

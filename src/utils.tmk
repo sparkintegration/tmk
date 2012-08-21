@@ -1,348 +1,417 @@
 # ========================================================================
-#	Group: General Helper Routines
-#		Some user-visible general helper routines
+#    Group: General Helper Routines
+#        Some user-visible general helper routines
 # ========================================================================
 
-#	Procedure: ifdef
-#		Execute commands depending on whether a variable exists.
+#    Procedure: ifdef
+#        Execute commands depending on whether a variable exists.
 #
-#	Parameters:
-#		var			- The variable to test
-#		then_part	- The code to execute if the variable exists
-#		else_part	- The code to execute if the variable does not exist
+#    Parameters:
+#        var            - The variable to test
+#        then_part    - The code to execute if the variable exists
+#        else_part    - The code to execute if the variable does not exist
 proc ifdef {var then_part {else_part {}} } {
-	if {[uplevel 1 info vars $var] == {}} {
-		uplevel 1 $else_part
-	} else {
-		uplevel 1 $then_part
-	}
+    if {[uplevel 1 info vars $var] == {}} {
+        uplevel 1 $else_part
+    } else {
+        uplevel 1 $then_part
+    }
 }
 
-#	Procedure: set_ifndef
-#		Only set a variable if it's not already defined; also creates its 
-#		namespace, if necessary.
+#    Procedure: set_ifndef
+#        Only set a variable if it's not already defined; also creates its 
+#        namespace, if necessary.
 #
-#	Parameters:
-#		var	- The variable to create
-#		val	- The value to set it to
+#    Parameters:
+#        var    - The variable to create
+#        val    - The value to set it to
 proc set_ifndef {var val} {
-	if {[uplevel 1 info vars $var] == {}} {
-		set ns [namespace qualifiers $var]
-		set v  [namespace tail $var]
-		
-		# special case: the global namespace must be "::", not ""
-		if {([string range $var 0 1] == "::") && ($ns == {})} {
-			set ns "::"
-		}
-		if {$ns == {}} {
-			set ns [uplevel 1 namespace current]
-		}
-		
-		uplevel 1 [list namespace eval $ns [list variable $v $val]]
-	}
+    if {[uplevel 1 info vars $var] == {}} {
+        set ns [namespace qualifiers $var]
+        set v  [namespace tail $var]
+        
+        # special case: the global namespace must be "::", not ""
+        if {([string range $var 0 1] == "::") && ($ns == {})} {
+            set ns "::"
+        }
+        if {$ns == {}} {
+            set ns [uplevel 1 namespace current]
+        }
+        
+        uplevel 1 [list namespace eval $ns [list variable $v $val]]
+    }
 }
 
-#	Procedure: proc_ifndef
-#		Only define a procedure if it's not already defined.
+#    Procedure: proc_ifndef
+#        Only define a procedure if it's not already defined.
 #
-#	Parameters:
-#		name	- The procedure to create
-# 		params	- The procedure's parameter definition list
-# 		body	- The procedure's body
+#    Parameters:
+#        name    - The procedure to create
+#         params    - The procedure's parameter definition list
+#         body    - The procedure's body
 proc proc_ifndef { name params body } {
-	if {[llength [info commands $name]] == 0} {
-		proc $name $params $body
-	}
+    if {[llength [info commands $name]] == 0} {
+        proc $name $params $body
+    }
 }
 
-#	Procedure: assert
-#		Assert that a condition is true; otherwise exit with an internal error.
+#    Procedure: assert
+#        Assert that a condition is true; otherwise exit with an internal error.
 #
-#	Parameters:
-#		cond	- The condition to test
+#    Parameters:
+#        cond    - The condition to test
 proc assert { cond } {
-	global tmk::outputPrefix
-	upvar __assertCond acond
-	upvar __assertMsg  msg
-	set msg "${tmk::outputPrefix} assertion failed:\n  $cond"
-	set acond $cond
-	uplevel 1 {if {![expr $__assertCond]} {error $__assertMsg}}
+    global tmk::outputPrefix
+    upvar __assertCond acond
+    upvar __assertMsg  msg
+    set msg "${tmk::outputPrefix} assertion failed:\n  $cond"
+    set acond $cond
+    uplevel 1 {if {![expr $__assertCond]} {error $__assertMsg}}
 }
 
-#	Procedure: blanks
-#		Return -n- blanks.
+#    Procedure: blanks
+#        Return -n- blanks.
 #
-#	Parameters:
-#		n	- The number of blanks to return
+#    Parameters:
+#        n    - The number of blanks to return
 #
-#	Return:
-#		A string composed of -n- blanks (spaces)
+#    Return:
+#        A string composed of -n- blanks (spaces)
 proc blanks {n} {
-	set r ""
-	while {$n>0} {append r " "; incr n -1}
-	return $r
+    set r ""
+    while {$n>0} {append r " "; incr n -1}
+    return $r
 }
 
-#	Procedure: echo
-#		Echo a command before doing it.
+#    Procedure: say
+#        Provide minimal voice feedback on build status
 #
-#	Parameters:
-#		args	- The command to execute
+#    Parameters:
+#        msg    -    The string to read aloud
+proc say { msg } {
+    if { $::SAY } {
+        if { [string tolower $::tcl_platform(os)] == "darwin" } {
+            cmd_quiet say $msg
+        }
+    }
+}
+
+#    Procedure: beep
+#        Provide minimal audio feedback on build status
+#
+#    Parameters:
+#        audioFile    -    The audio file (beep sound) to play
+proc beep { audioFile } {
+    if { $::BEEP } {
+        if { [string tolower $::tcl_platform(os)] == "darwin" } {
+            if { [file exists $audioFile] } {
+                cmd_quiet afplay $audioFile
+            }
+        }
+    }
+}
+
+#    Procedure: echo
+#        Echo a command before doing it.
+#
+#    Parameters:
+#        args    - The command to execute
 proc echo args {
-	if $::tmk::doLog {
-		uplevel 1 "puts \{$args\}"
-		flush stdout
-	}
-	uplevel 1 $args
+    if $::tmk::doLog {
+        uplevel 1 "puts \{$args\}"
+        flush stdout
+    }
+    uplevel 1 $args
 }
 
-#	Procedure: cmd
-#		Echo and execute a command, cleanly exiting with an error message if needed.
+#    Procedure: cmd
+#        Echo and execute a command, cleanly exiting with an error message if needed.
 #
-#	Parameters:
-#		args	- The command to execute
+#    Parameters:
+#        args    - The command to execute
 proc cmd args {
-	if $::tmk::doLog {
-		puts $args
-		flush stdout
-	}
+    if $::tmk::doLog {
+        puts $args
+        flush stdout
+    }
 
-	if [catch [list uplevel 1 "exec $args >@stdout 2>@stderr <@stdin"] m] {
-		exit_msg $m
-	} 
-	return 1
+    if {[catch [list uplevel 1 "exec $args >@stdout 2>@stderr <@stdin"] m] && ![string equal $::errorCode NONE]} {
+        exit_msg $m
+    } 
+    return 1
 }
 
-#	Procedure: cmd_noexit
-#		Echo and execute a command, printing "failed" if it failed.
+#    Procedure: cmd_noexit
+#        Echo and execute a command, printing "failed" if it failed.
 #
-#	Parameters:
-#		args	- The command to execute
+#    Parameters:
+#        args    - The command to execute
 proc cmd_noexit args {
-	if $::tmk::doLog {
-		puts $args
-		flush stdout
-	}
+    if $::tmk::doLog {
+        puts $args
+        flush stdout
+    }
 
-	if [catch [list uplevel 1 "exec $args >@stdout 2>@stderr <@stdin"] m] {
-		error "failed"
-	} 
-	return 1
+    if [catch [list uplevel 1 "exec $args >@stdout 2>@stderr <@stdin"] m] {
+        error "failed"
+    } 
+    return 1
 }
 
-#	Procedure: cmd_quiet
-#		Execute a command without displaying it, cleanly exiting with an error message
-#		if needed.
+#    Procedure: cmd_quiet
+#        Execute a command without displaying it, cleanly exiting with an error message
+#        if needed.
 #
-#	Parameters:
-#		args	- The command to execute
+#    Parameters:
+#        args    - The command to execute
 proc cmd_quiet args {
-	if [catch "uplevel 1 exec $args" msg] {
-		exit_msg $msg
-	} 
-	return 1
+    if [catch "uplevel 1 exec $args" msg] {
+        exit_msg $msg
+    } 
+    return 1
 }
 
-#	Procedure: read_file
-#		Read a named file and set the given variable to the contents; only if the file exists
+#    Procedure: read_file
+#        Read a named file and set the given variable to the contents; only if the file exists
 #
-#	Parameters:
-#		filename	- The file to read
-#		varName		- The name of the variable to append to
+#    Parameters:
+#        filename    - The file to read
+#        varName        - The name of the variable to append to
 proc read_file {filename varName} {
-	upvar $varName result
-	if [file exists $filename] {
-		set f [open $filename r]
-		set result [read $f]
-		close $f
-	} else {
-		if {![info exists result]} {
-			set result ""
-		}
-	}
+    upvar $varName result
+    if [file exists $filename] {
+        set f [open $filename r]
+        set result [read $f]
+        close $f
+    } else {
+        if {![info exists result]} {
+            set result ""
+        }
+    }
 }
 
-#	Procedure: write_file
-#		Write a string into a file.
+#    Procedure: write_file
+#        Write a string into a file.
 #
-#	Parameters:
-#		filename	- The name of the file to write to
-#		varName		- The name of the variable to write out
-#		args		- If args is "append", append to existing file
+#    Parameters:
+#        filename    - The name of the file to write to
+#        varName        - The name of the variable to write out
+#        args        - If args is "append", append to existing file
 proc write_file {filename varName args} {
-	upvar $varName txt
-	if {$args == "append"} {
-		set f [open $filename a+]
-	} else {
-		set f [open $filename w]
-	}
-	puts $f $txt
-	close $f
+    upvar $varName txt
+    if {$args == "append"} {
+        set f [open $filename a+]
+    } else {
+        set f [open $filename w]
+    }
+    puts $f $txt
+    close $f
 }
 
 # ========================================================================
-#	Group: List Manipulation Functions
+#    Group: List Manipulation Functions
 # ========================================================================
 
-#	Procedure: lmap
-#		Map a function to all elements in a list.
+#    Procedure: lmap
+#        Map a function to all elements in a list.
 #
-#	Parameters:
-#		list	- The list of elements to process
-#		func	- The test I-expression, which returns the replacement for the
-#				item in the list
+#    Parameters:
+#        list    - The list of elements to process
+#        func    - The test I-expression, which returns the replacement for the
+#                item in the list
 #
-#	Return:
-#		The list of mapped elements
+#    Return:
+#        The list of mapped elements
 proc lmap { list func } {
-	set result ""
-	foreach element $list {
-		set result [concat $result [::tmk::expand_T_expr "" $element $element $func 2 ITEM I]]
-	}
-	return $result
+    set result [list]
+    foreach ITEM $list {
+        lappend result [if 1 $func]
+    }
+    return $result
 }
 
 # each element may only occur once. order is changed. 
 # in future lsort -unique, so this is not user-visible
 proc ::tmk::lunify { list } {
-	set list [lsort $list]
-	set result {}
-	while {[llength $list]} {
-		if {[lindex $list 0] != [lindex $list 1]} {
-			lappend result [lindex $list 0]
-		}
-		set list [lrange $list 1 end]
-	}
-	return $result
+    set list [lsort $list]
+    set result {}
+    while {[llength $list]} {
+        if {[lindex $list 0] != [lindex $list 1]} {
+            lappend result [lindex $list 0]
+        }
+        set list [lrange $list 1 end]
+    }
+    return $result
 }
 
-#	Procedure: lmatch
-#		Return all list elements that match any of the patterns.
+#    Procedure: lmatch
+#        Return all list elements that match any of the patterns.
 #
-#	Parameters:
-#		list		- The list to search
-#		patterns	- The patterns to check each item against
+#    Parameters:
+#        list        - The list to search
+#        patterns    - The patterns to check each item against
 #
-#	Return:
-#		The list of matching items
+#    Return:
+#        The list of matching items
 proc lmatch { list patterns } {
-	set result {}
-	foreach element $list {
-		foreach pat $patterns {
-			if {[string match $pat $element]} {
-				lappend result $element
-				break
-			}
-		}
-	}
-	return $result
+    set result {}
+    foreach element $list {
+        foreach pat $patterns {
+            if {[string match $pat $element]} {
+                lappend result $element
+                break
+            }
+        }
+    }
+    return $result
 }
 
-#	Procedure: lcontains
-#		Determine if an element is contained in a list.
+#    Procedure: lcontains
+#        Determine if an element is contained in a list.
 #
-#	Parameters:
-#		list	- The list to search
-#		elem	- The element to search for
+#    Parameters:
+#        list    - The list to search
+#        elem    - The element to search for
 #
-#	Return:
-#		1 if the item was found, 0 otherwise
+#    Return:
+#        1 if the item was found, 0 otherwise
 proc lcontains { list elem } {
-	return [expr [lsearch -exact $list $elem] != -1]
+    return [expr [lsearch -exact $list $elem] != -1]
 }
 
-#	Procedure: lfilter
-#		Return a list which contains only those elements for which the function becomes true.
+#    Procedure: lfilter
+#        Return a list which contains only those elements for which the function becomes true.
 #
-#	Parameters:
-#		list	- The list containing the items to test
-#		func	- The test I-expression, which returns 1 if the item should be
-#				included and 0 if it should be excluded
+#    Parameters:
+#        list    - The list containing the items to test
+#        func    - The test I-expression, which returns 1 if the item should be
+#                included and 0 if it should be excluded
 #
-#	Return:
-#		The list of passed items
+#    Return:
+#        The list of passed items
 proc lfilter { list func } {
-	set result ""
-	foreach element $list {
-		if [::tmk::expand_T_expr "" $element $element $func 2 ITEM I] {
-			set result [lappend result $element]
-		}
-	}
-	return $result
+    set result ""
+    foreach element $list {
+        if [::tmk::expand_T_expr "" $element $element $func 2 ITEM I] {
+            set result [lappend result $element]
+        }
+    }
+    return $result
 }
 
-#	Procedure: lminus
-#		Remove all elements from A which are found in B.
+#    Procedure: lminus
+#        Remove all elements from A which are found in B.
 #
-#	Parameters:
-#		listA	- The list to remove from
-#		listB	- The items to remove from A
+#    Parameters:
+#        listA    - The list to remove from
+#        listB    - The items to remove from A
 #
-#	Return:
-#		The remnants of list A
+#    Return:
+#        The remnants of list A
 proc lminus { listA listB } {
-	set result {}
-	foreach item $listA {
-		if { [lsearch -exact $listB $item] == -1 } {
-			set result [lappend result $item]
-		}
-	}
-	return $result
+    set result {}
+    foreach item $listA {
+        if { [lsearch -exact $listB $item] == -1 } {
+            set result [lappend result $item]
+        }
+    }
+    return $result
 }
 
-#	Procedure: lremove
-#		Remove all elements from listName which match the given pattern.
+#    Procedure: lremove
+#        Remove all elements from listName which match the given pattern.
 #
-#	Parameters:
-#		listName	- The name of the list to remove from
-#		pattern		- The pattern an item must match be removed
-#		nargs		- Optional number of items to remove following each
-#					matching entry
+#    Parameters:
+#        listName    - The name of the list to remove from
+#        pattern        - The pattern an item must match be removed
+#        nargs        - Optional number of items to remove following each
+#                    matching entry; use negative numbers to remove items before
+#                    the entry
 #
-#	Return:
-#		The list with items removed
+#    Return:
+#        The list with items removed
 proc lremove { listName pattern {nargs 0}} {
-	upvar $listName listA
-	set rest $listA
-	set listA {}
-	while {[llength $rest]} {
-		set x [lindex $rest 0]
-		if [string match $pattern $x] {
-			set rest [lrange $rest [expr 1 + $nargs] end]
-		} else {
-			lappend listA $x
-			set rest [lrange $rest 1 end]
-		}
-	}
-	return $listA
+    upvar $listName listA
+    set rest $listA
+    set listA {}
+    
+    if { $nargs >= 0 } {
+        while { [llength $rest] } {
+            set x [lindex $rest 0]
+            if [string match $pattern $x] {
+                set rest [lrange $rest [expr 1 + $nargs] end]
+            } else {
+                lappend listA $x
+                set rest [lrange $rest 1 end]
+            }
+        }
+    } else {
+        while { [llength $rest] } {
+            set x [lindex $rest end]
+            if [string match $pattern $x] {
+                set rest [lrange $rest 0 end-[expr 1 - $nargs]]
+            } else {
+                set listA [linsert $listA 0 $x]
+                set rest [lrange $rest 0 end-1]
+            }
+        }
+    }
+    return $listA
 }
 
 if {[info command lreverse] == ""} {
-	proc lreverse l {
-		set r {}
-		set i [llength $l]
-		if $i {
-			while {[incr i -1]} {
-				lappend r [lindex $l $i]
-			}
-			lappend r [lindex $l 0]
-		} else {
-			set l
-		}
-	}
+    proc lreverse l {
+        set r {}
+        set i [llength $l]
+        if $i {
+            while {[incr i -1]} {
+                lappend r [lindex $l $i]
+            }
+            lappend r [lindex $l 0]
+        } else {
+            set l
+        }
+    }
 }
 
 proc lconcat {listname other} {
-	set cmd {ifdef $listname {set $listname [concat \$$listname {$other}]} {set $listname {$other}}}
-	set cmd [subst -nocommands $cmd]
-	uplevel 1 $cmd
+    set cmd {ifdef $listname {set $listname [concat \$$listname {$other}]} {set $listname {$other}}}
+    set cmd [subst -nocommands $cmd]
+    uplevel 1 $cmd
 }
 
-#	Procedure: timestamp
-#		Generates a textual timestamp when called
+proc delete_files {pattern} {
+    set files [glob -nocomplain -- $pattern]
+    if {[llength $files] != 0} {
+        eval file delete -force -- $files
+    }
+}
+
+#    Procedure: timestamp
+#        Generates a textual timestamp when called
 #
-#	Return:
-#		The current date and time in a readable format
+#    Return:
+#        The current date and time in a readable format
 proc timestamp {} {
-	return [clock format [clock seconds]]
+    return [clock format [clock seconds]]
+}
+
+#    Procedure: rglob
+#        Recursively glob for a given pattern
+#
+#    Parameters:
+#        pattern    -    The glob pattern to search for
+#        dir        -    The directory to search in (defaults to the current
+#                    directory)
+#
+#    Return:
+#        The sorted list of found files
+proc rglob {pattern {dir ""}} {
+    set dirs [glob -nocomplain -types {d l} -dir $dir -- *]
+    set files [glob -nocomplain -types {f l} -dir $dir -- "${pattern}"]
+    foreach d $dirs {
+        set files [concat $files [rglob $pattern $d]]
+    }
+    
+    return [lsort $files]
 }

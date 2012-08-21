@@ -1,0 +1,60 @@
+# try to find executables, so we don't need this in the site config
+switch $__module {
+    "java"        {
+                    catch {config set EXECUTABLE javac}
+                    catch {config set JAR jar}
+                }
+    "default"    {log_msg "warning: javac is not configured for module $__module" }
+}
+
+# default flags for javac
+config set FLAGS_PRF ""
+config set FLAGS_DBG ""
+config set FLAGS_STD ""
+config set FLAGS_OPT ""
+config set FLAGS_MAX ""
+
+# compile a Java source file
+config proc compile_class { class src classpath flags output_dir } {
+    variable EXECUTABLE
+    file mkdir $output_dir
+    
+    set command [list [file nativename $EXECUTABLE] -d $output_dir -sourcepath . -classpath]
+    set command [concat $command \"[join $classpath :]\" $flags $src]
+    uplevel \#0 cmd $command
+}
+
+# create an executable jar's manifest file
+config proc create_exe_manifest { manifest_file name } {
+    set manifest_text "Main-Class: ${name}\n"
+    write_file $manifest_file manifest_text
+}
+
+# create a jar file
+config proc create_jar { jar_file contents_dir manifest_file } {
+    variable JAR
+    
+    set command [list [file nativename $JAR]]
+    if { $manifest_file == "" } {
+        lconcat command cvf
+    } else {
+        lappend command cvmf
+        lappend command $manifest_file
+    }
+    lappend command $jar_file
+    lconcat command [list -C $contents_dir .]
+    uplevel \#0 cmd [join $command]
+
+    set command [list [file nativename $JAR] i $jar_file]
+    uplevel \#0 cmd $command
+}
+
+config proc extract_jar { jar_file destination } {
+    variable JAR
+    
+    set command [list [file nativename $JAR] xf [file normalize $jar_file]]
+    set owd [pwd]
+    cd $destination
+    uplevel \#0 cmd $command
+    cd $owd
+}

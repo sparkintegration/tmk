@@ -1,42 +1,42 @@
 proc write_dummy_file {file_name} {
-	set dummyfile [open [targetname_long $file_name] w]
-	puts $dummyfile "#if TARGET_OS_OSX"
-	puts $dummyfile "__attribute__((visibility(\"hidden\"))) int tmk__dummy__var = 0;"
-	puts $dummyfile "#else"
-	puts $dummyfile "static int tmk__dummy__var = 0;"
-	puts $dummyfile "#endif"
-	close $dummyfile
+    set dummyfile [open [targetname_long $file_name] w]
+    puts $dummyfile "#if TARGET_OS_OSX"
+    puts $dummyfile "__attribute__((visibility(\"hidden\"))) int tmk__dummy__var = 0;"
+    puts $dummyfile "#else"
+    puts $dummyfile "static int tmk__dummy__var = 0;"
+    puts $dummyfile "#endif"
+    close $dummyfile
 }
 
 proc get_name {dir type} {
-	set list [glob -nocomplain -directory $dir -- __tmk_dummy__*.$type]
-	if {[llength $list] != 0} {
-		return [lindex $list 0]
-	} else {
-		return "__tmk_dummy__[clock clicks].$type"
-	}
+    set list [glob -nocomplain -directory $dir -- __tmk_dummy__*.$type]
+    if {[llength $list] != 0} {
+        return [lindex $list 0]
+    } else {
+        return "__tmk_dummy__[clock clicks].$type"
+    }
 }
 
 # create dummy library for transitive linking
 eval_after {
-	set dir [file join __build__ $::TARGET_OS $::TARGET_ARCH]
-	if {[info exists ::cxx::OPTIONS]} {
-		set name [get_name $dir "cpp"]
-		
-		set rule {
-			::dummy_lib::write_dummy_file $name
-	    }
-	    target $name {} [subst -nocommands $rule]
+    set dir [tmk_output_dir]
+    if {[info exists ::cxx::OPTIONS]} {
+        set name [get_name $dir "cpp"]
+        
+        set rule {
+            ::dummy_lib::write_dummy_file $name
+        }
+        target $name {} [subst -nocommands $rule]
 
-		::cxx::make_obj $name {} undef undef
-	} elseif {[info exists ::c::OPTIONS]} {
-		set name [get_name $dir "c"]
-		
-		set rule {
-			::dummy_lib::write_dummy_file $name
-	    }
-	    target $name {} [subst -nocommands $rule]
+        ::cxx::make_obj $name {} undef undef
+    } elseif {[info exists ::c::OPTIONS]} {
+        set name [get_name $dir "c"]
+        
+        set rule {
+            ::dummy_lib::write_dummy_file $name
+        }
+        target $name {} [subst -nocommands $rule]
 
-		::c::make_obj $name {} undef undef
-	}
+        ::c::make_obj $name {} undef undef
+    }
 }

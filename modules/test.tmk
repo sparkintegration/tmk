@@ -1,37 +1,36 @@
 if [lcontains $::tmk::cmdLineTargets "test"] {
-	target test ALWAYS_BUILD {
-	
-		set log_state $::tmk::doLog
-	
-		set ::tmk::doLog 0
-	
-		set currentdir [pwd]
-	    normalize_filevar currentdir
+    target test ALWAYS_BUILD {
+    
+        set log_state $::tmk::doLog
+    
+        set ::tmk::doLog 0
+    
+        set currentdir [normalize_filename [pwd]]
 
-		# find all test_* executables in the build dir and execute them
-		if [file exists [tmk_output_dir]] {
-			puts "Running simple tests..."
-			cd [tmk_output_dir]
-		
-			foreach testApp [glob -nocomplain *_test] {
-				puts "=== $testApp ==="
-				catch { cmd_noexit ./$testApp }
-				puts "======"
-			}
-		
-			cd $currentdir
-		}
-	
-		puts ""
-	
-		# find all test_*.py and execute them
-		puts "Running scripted tests..."
-		foreach testScript [glob -nocomplain test_*.py] {
-			puts "=== $testScript ==="
-			catch { cmd_noexit python $testScript }
-			puts "======"
-		}
-	
-		set ::tmk::doLog $log_state
-	}
+        # find all test_* executables in the build dir and execute them
+        if [file exists [tmk_output_dir]] {
+            puts "Running simple tests..."
+            cd [tmk_output_dir]
+        
+            foreach testApp [glob -nocomplain *_test] {
+                puts "=== $testApp ==="
+                catch { cmd_noexit ./$testApp }
+                puts "======"
+            }
+        
+            cd $currentdir
+        }
+    
+        puts ""
+    
+        # find all test_*.py and execute them
+        puts "Running scripted tests..."
+        foreach testScript [glob -nocomplain test_*.py] {
+            puts "=== $testScript ==="
+            catch { cmd_noexit python $testScript }
+            puts "======"
+        }
+    
+        set ::tmk::doLog $log_state
+    }
 }

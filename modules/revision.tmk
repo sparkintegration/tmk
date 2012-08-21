@@ -1,135 +1,156 @@
-#	Title: Revision Module
+#    Title: Revision Module
 #
 # ===========================================================================
-#		Automatically generates an SVN revision information header
+#        Automatically generates an SVN revision information header
 # ===========================================================================
 
-#	Variable: REVISION_FILE
-#		Name of the file to generate
-set_ifndef REVISION_FILE	"revision.h"
+module { vcs }
 
-#	Variable: TEMPLATE_FILE
-#		Name of the template file
-set_ifndef TEMPLATE_FILE	"revision.template.h"
+#    Variable: REVISION_FILE
+#        Name of the file to generate
+set_ifndef REVISION_FILE    "revision.h"
 
-#	Variable: VCS
-#		The VCS for the current directory
+#    Variable: TEMPLATE_FILE
+#        Name of the template file
+set_ifndef TEMPLATE_FILE    "revision.template.h"
+
+#    Variable: VCS
+#        The VCS for the current directory
 set_ifndef VCS "none"
 
 # determine and set the current VCS 
 proc set_vcs_type {} { 
-	if { [catch {exec svn info}] == 0 } { 
-		set revision::VCS "svn" 
-	} elseif { [catch {exec git branch}] == 0 } { 
-		set revision::VCS "git" 
-	} 
+    if { [catch {exec svn info}] == 0 } { 
+        set revision::VCS "svn" 
+    } elseif { [catch {exec git branch}] == 0 } { 
+        set revision::VCS "git" 
+    } 
 }
 
 # uses the versioning executable to get the current revision
 proc get_git_revision {} { 
-	set lines [split [exec git log -n 1] "\n"] 
-	set rev [regsub "^commit " [lindex $lines 0] ""] 
-	set branch "" 
-	 
-	set lines [split [exec git branch] "\n"] 
-	foreach line $lines { 
-		if [regexp "^\\* " $line] { 
-			set branch [regsub "^\\* " $line ""] 
-		} 
-	} 
-	 
-	return "${rev} (${branch})" 
+    set lines [split [exec git log -n 1] "\n"] 
+    set rev [regsub "^commit " [lindex $lines 0] ""] 
+    set branch "" 
+     
+    set lines [split [exec git branch] "\n"] 
+    foreach line $lines { 
+        if [regexp "^\\* " $line] { 
+            set branch [regsub "^\\* " $line ""] 
+        } 
+    } 
+     
+    return "${rev} (${branch})" 
 }
 
 proc get_revision {} { 
-	if { $revision::VCS == "svn" } { 
-		return [exec svnversion -n] 
-	} elseif { $revision::VCS == "git" } { 
-		return [get_git_revision] 
-	} 
-	return "" 
+    if { $revision::VCS == "svn" } { 
+        return [exec svnversion -n] 
+    } elseif { $revision::VCS == "git" } { 
+        return [get_git_revision] 
+    } 
+    return "" 
 }
 
 # uses the svn executable to get the current url
 proc get_svn_url {} {
-	set lines [split [exec svn info] "\n"]
-	
-	foreach line $lines {
-		if [regexp "^URL: " $line] {
-			return [regsub "^URL: " $line ""]
-		}
-	}
-	return ""
+    set lines [split [exec svn info] "\n"]
+    
+    foreach line $lines {
+        if [regexp "^URL: " $line] {
+            return [regsub "^URL: " $line ""]
+        }
+    }
+    return ""
 }
 
 proc get_git_url {} { 
-	set repositories [split [exec git remote] " "] 
-	set urls "" 
-	 
-	foreach repos $repositories { 
-		set info [split [exec git remote show $repos] "\n"] 
-		set url "" 
-		 
-		foreach line $info { 
-			if [regexp "^  Fetch URL: " $line] { 
-				set url [regsub "^	Fetch URL: " $line ""] 
-				if { [string length $urls] > 0 } { 
-					set urls "${urls}, ${url}" 
-				} else { 
-					set urls $url 
-				} 
-			} 
-		} 
-	} 
-	return $urls 
+    set repositories [split [exec git remote]]
+    set urls "" 
+     
+    foreach repos $repositories { 
+        set info [split [exec git remote show -n $repos] "\n"] 
+        set url "" 
+         
+        foreach line $info { 
+            if [regexp "^  Fetch URL: " $line] { 
+                set url [regsub "^  Fetch URL: " $line ""] 
+                if { [string length $urls] > 0 } { 
+                    set urls "${urls}, ${url}" 
+                } else { 
+                    set urls $url 
+                } 
+            } 
+        } 
+    } 
+    return $urls 
 }
 
 proc get_url {} { 
-	if { $revision::VCS == "svn" } { 
-		return [get_svn_url] 
-	} elseif { $revision::VCS == "git" } { 
-		return [get_git_url] 
-	} 
-	return "" 
+    if { $revision::VCS == "svn" } { 
+        return [get_svn_url] 
+    } elseif { $revision::VCS == "git" } { 
+        return [get_git_url] 
+    } 
+    return "" 
 }
 
 # generates a file with the revision information
 proc generate_revision_file {} {
-	# generate needed field values
-	array set search_replace [subst {
-		"{REVISION}"		{[get_revision]} 
-		"{DIRECTORY}"		{[pwd]} 
-		"{URL}"				{[get_url]}
-		"{GEN_DATE}"		{[clock format [clock seconds]]}
-		"{BUILD_MACHINE}"	{[info hostname]}
-	}]
-	
-	# load template
-	read_file [file join $::tmk::modulesDir ${revision::TEMPLATE_FILE}] template
-	
-	# perform template replacement
-	foreach { tag value } [array get search_replace] {
-		regsub -all $tag $template $value template
-	}
-	
-	# write out resulting header
-	write_file $revision::REVISION_FILE template
+    # generate needed field values
+    set rev [get_revision]
+    set version [vcs::get_version]
+    array set search_replace [subst {
+        "{REVISION}"        {$rev} 
+        "{DIRECTORY}"        {[pwd]} 
+        "{URL}"                {[get_url]}
+        "{GEN_DATE}"        {[clock format [clock seconds]]}
+        "{BUILD_MACHINE}"    {[info hostname]}
+        "{VERSION}"            {$version}
+    }]
+    
+    # load template
+    read_file [file join $::tmk::modulesDir ${revision::TEMPLATE_FILE}] template
+    
+    # perform template replacement
+    foreach { tag value } [array get search_replace] {
+        regsub -all $tag $template $value template
+    }
+    
+    # write out resulting header
+    write_file $revision::REVISION_FILE template
+    
+    write_file [file join [tmk_output_dir] __last_revision__] rev
+}
+
+proc have_new_revision {} {
+    set_vcs_type
+
+    read_file [file join [tmk_output_dir] __last_revision__] oldrev
+    if {[string trim $oldrev] == [get_revision]} {
+        return 0
+    }
+    return 1
 }
 
 # --------------
-#	begin main 
+#    begin main 
 # --------------
 target $revision::REVISION_FILE ALWAYS_BUILD {
-	revision::set_vcs_type
-	
-	puts "Generating revision file...."
-	set origdir [pwd]
-	cd $::PROJROOT/$::SUBDIR
-	
-	revision::generate_revision_file
-	
-	cd $origdir
-	puts "Done."
+    
+    if {![revision::have_new_revision] && [file exists $revision::REVISION_FILE]} {
+        puts "Not rebuilding revision file since the revision has not changed."
+        mark_target_untouched $revision::REVISION_FILE
+    } else {
+        puts "Generating revision file...."
+        set origdir [pwd]
+        cd $::PROJROOT/$::SUBDIR
+
+        revision::generate_revision_file
+
+        cd $origdir
+        puts "Done."
+    }
 }
 
 build $revision::REVISION_FILE

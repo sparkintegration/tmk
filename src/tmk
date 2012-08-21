@@ -3,609 +3,799 @@
 
 # version check (need tclsh 8.x)
 if { [lindex [split [info tclversion] \.] 0] < 8 } {
-	puts stderr "tmk needs a more recent version of 'tclsh' (8.x)"
-	puts stderr "please upgrade / set TMK_TCLSH"
-	exit 1
+    puts stderr "tmk needs a more recent version of 'tclsh' (8.x)"
+    puts stderr "please upgrade / set TMK_TCLSH"
+    exit 1
 }
+
+#package require Tclx ;# required for profiling
 
 namespace eval tmk {}
 
-#	Procedure: tmk_output_dir
-#		Returns the relative path of the directory that tmk build products are put into.
-proc tmk_output_dir {} {
-	if {($::CODELEVEL == "dbg") || ($::CODELEVEL == "")} {
-		return [file join __build__ $::tmk::outputDir]
-	} else {
-		return [file join __build__ "${::tmk::outputDir}_${::CODELEVEL}"]
-	}
-	
+proc get_env {name default} {
+    if {[info exists ::env($name)]} {
+        return $::env($name)
+    } else {
+        return $default
+    }
 }
 
-#	Procedure: module
-#		Execute all modules in the list.
-#		Modules provide packages of rules, targets, functions, etc. to simplify
-#		various tasks (e.g. to compile C code, `module { c }` is all that
-#		is required.
+#    Procedure: properties_hash
+#        Generates a hash value corresponding to all of the supplied build settings
 #
-#	Parameters:
-#		modules	- The list of modules to use
+#    Parameters:
+#        os            -    The target OS
+#        arch        -    The target architecture
+#        board        -    The target board
+#        codelevel    -    The build codelevel
+#        premodules    -    The build's premodules
+#        postmodules    -    The build's postmodules
+#        salt        -    Optional extra data to mix into the hash
+proc properties_hash { os arch board codelevel premodules postmodules {salt {}} } {
+    set pre [join [lsort -unique $premodules] _]
+    set post [join [lsort -unique $postmodules] _]
+    set pre [regsub -all {[\/]} $pre _]
+    set post [regsub -all {[\/]} $post _]
+    set str "${os}_${arch}_${board}_${codelevel}_${pre}_${post}_${salt}"
+    return $str
+}
+
+#    Procedure: tmk_output_dir
+#        Returns the relative path of the directory that tmk build products are
+#        put into.  With no arguments this is for the current build settings.
+#        If arguments are provided then the directory path composed as though
+#        for a build with those parameters.
+#
+#    Parameters:
+#        reqs        -    The build requirements, as for <get_target_type>
+#        codelevel    -    The code level of the specified build requirements
+proc tmk_output_dir { {reqs {}} {codelevel ""} } {
+    if { $reqs == {} } {
+        set os $::TARGET_OS
+        set arch $::TARGET_ARCH
+        set board $::TARGET_BOARD
+    } else {
+        set os [get_target_os $reqs]
+        set arch [get_target_arch $reqs]
+        set board [get_target_board $reqs]
+    }
+
+    if { $codelevel == "" } {
+        set codelevel $::CODELEVEL
+    }
+    if { $codelevel == "dbg" } {
+        set codelevel ""
+    }
+
+    return [file join $::tmk::outputDirPrefix [properties_hash $os $arch $board $codelevel $tmk::premodules $tmk::postmodules]]
+}
+
+#    Procedure: tmk_named_output_dir
+#        Returns the relative path of the named directory link to the build
+#        products.  With no arguments this is for the current build settings.
+#        If arguments are provided then the directory path composed as though
+#        for a build with those parameters.
+#
+#    Parameters:
+#        reqs        -    The build requirements, as for <get_target_type>
+#        codelevel    -    The code level of the specified build requirements
+proc tmk_named_output_dir { {reqs {}} {codelevel ""} } {
+    if { $reqs == {} } {
+        set os $::TARGET_OS
+        set arch $::TARGET_ARCH
+        set board $::TARGET_BOARD
+    } else {
+        set os [get_target_os $reqs]
+        set arch [get_target_arch $reqs]
+        set board [get_target_board $reqs]
+    }
+
+    if { $codelevel == "" } {
+        set codelevel $::CODELEVEL
+    }
+    if { $codelevel == "dbg" } {
+        set codelevel ""
+    }
+    set namedDir [file join $os $arch $codelevel]
+    if { $board != "" } {
+        set namedDir [file join $board $os $codelevel]
+    }
+
+    return [file join $::tmk::outputDirPrefix $namedDir latest]
+}
+
+#    Procedure: make_tmk_output_dirs
+#        Makes the output directories required for the current build
+proc make_tmk_output_dirs {} {
+    set actualDir [tmk_output_dir]
+    file mkdir $actualDir
+    set inBuildDir [lindex [file split $actualDir] 1]
+    set ::env(TMK_OUTPUT_DIR) $actualDir
+
+    set owd [pwd]
+    cd $::tmk::outputDirPrefix
+    file delete latest
+    file link latest $inBuildDir
+
+    set codelevel $::CODELEVEL
+    if { $codelevel == "dbg" } {
+        set codelevel ""
+    }
+    set namedDir [file join $::TARGET_OS $::TARGET_ARCH $codelevel]
+    if { $::TARGET_BOARD != "" } {
+        set namedDir [file join $::TARGET_BOARD $::TARGET_OS $codelevel]
+    }
+    file mkdir $namedDir
+    set ups [file split $namedDir]
+
+    cd $namedDir
+    set dots ""
+    foreach d $ups {
+        set dots [file join $dots ".."]
+    }
+    file delete latest
+    file link latest [file join $dots $inBuildDir]
+    cd $owd
+    set ::env(TMK_NAMED_OUTPUT_DIR) [file join $::tmk::outputDirPrefix $namedDir latest]
+    set ::env(TMK_CODELEVEL) $::CODELEVEL
+}
+
+#    Procedure: remove_output_dirs
+#        Deletes the output directories for the current build settings
+proc remove_output_dirs {} {
+    if { "${::TARGET_ARCH}${::TARGET_BOARD}${::TARGET_OS}" == "" } {
+        file delete -force $::tmk::outputDirPrefix
+    } else {
+        file delete -force [tmk_output_dir]
+    }
+}
+
+#    Procedure: module
+#        Execute all modules in the list.
+#        Modules provide packages of rules, targets, functions, etc. to simplify
+#        various tasks (e.g. to compile C code, `module { c }` is all that
+#        is required.
+#
+#    Parameters:
+#        modules    - The list of modules to use
 proc module { modules } {
-	foreach mod $modules {
-		# module already loaded?
-		if {[lcontains $::MODULES ${mod}]} {
-			dbg_msg "module $mod already loaded" 2
-			continue
-		}
+    foreach mod $modules {
+        # module already loaded?
+        if {[lcontains $::MODULES ${mod}]} {
+            dbg_msg "module $mod already loaded" 2
+            continue
+        }
 
-		# register module, and set active version
-		lappend ::MODULES ${mod}
+        # register module, and set active version
+        lappend ::MODULES ${mod}
 
-		# evaluate configured macros for the module
-		set found [::tmk::eval_module_macros $mod]
+        # evaluate configured macros for the module
+        set found [::tmk::eval_module_macros $mod]
 
-		# load module file
-		set file [::tmk::find_module_file $mod dirs]
-		if {$file != {}} {
-			dbg_msg "reading module file $file"
-			uplevel \#0 namespace eval ::${mod} ::tmk::source $file
-		} else {
-			if {!$found} { 
-				set msg "Warning: module $mod requested,\n"
-				append msg "  but no ${mod}::... config variables found,\n" 
-				append msg "  and no $mod.tmk file found in \[$dirs\]" 
-				log_msg $msg 
-			}
-		}
-	}
+        # load module file
+        set file [::tmk::find_module_file $mod dirs]
+        if {$file != {}} {
+            dbg_msg "reading module file $file"
+            uplevel \#0 namespace eval ::${mod} ::tmk::source $file
+        } else {
+            if {!$found} {
+                set msg "Warning: module $mod requested,\n"
+                append msg "  but no ${mod}::... config variables found,\n"
+                append msg "  and no $mod.tmk file found in \[$dirs\]"
+                log_msg $msg
+            }
+        }
+    }
 }
 
-#	Procedure: add_premodule
-#		Programmatically add pre-TMakefile modules for subdirs
-#		This has the same effect as passing '-a <module>' to all subdirs for each module would have.
+#    Procedure: add_premodule
+#        Programmatically add pre-TMakefile modules for subdirs
+#        This has the same effect as passing '-a <module>' to all subdirs for each module would have.
 #
-#	Parameters:
-#		modules - The set of modules to add
+#    Parameters:
+#        modules - The set of modules to add
 proc add_premodule {modules} {
-	set ::tmk::premodules [concat $::tmk::premodules $modules]
+    set ::tmk::premodules [concat $::tmk::premodules $modules]
 }
 
-#	Procedure: remove_premodule
-#		Programmatically remove pre-TMakefile modules for subdirs
+#    Procedure: remove_premodule
+#        Programmatically remove pre-TMakefile modules for subdirs
 #
-#	Parameters:
-#		modules - The set of modules to remove
+#    Parameters:
+#        modules - The set of modules to remove
 proc remove_premodule {modules} {
-	foreach mod $modules {
-		lremove ::tmk::premodules $mod
-	}
+    foreach mod $modules {
+        lremove ::tmk::premodules $mod
+    }
 }
 
-#	Procedure: add_postmodule
-#		Programmatically add post-TMakefile modules for subdirs
-#		This has the same effect as passing '-z <module>' to all subdirs for each module would have.
+#    Procedure: add_postmodule
+#        Programmatically add post-TMakefile modules for subdirs
+#        This has the same effect as passing '-z <module>' to all subdirs for each module would have.
 #
-#	Parameters:
-#		modules - The set of modules to add
+#    Parameters:
+#        modules - The set of modules to add
 proc add_postmodule {modules} {
-	set ::tmk::postmodules [concat $::tmk::postmodules $modules]
+    set ::tmk::postmodules [concat $::tmk::postmodules $modules]
 }
 
-#	Procedure: remove_postmodule
-#		Programmatically remove post-TMakefile modules for subdirs
+#    Procedure: remove_postmodule
+#        Programmatically remove post-TMakefile modules for subdirs
 #
-#	Parameters:
-#		modules - The set of modules to remove
+#    Parameters:
+#        modules - The set of modules to remove
 proc remove_postmodule {modules} {
-	foreach mod $modules {
-		lremove ::tmk::postmodules $mod
-	}
+    foreach mod $modules {
+        lremove ::tmk::postmodules $mod
+    }
 }
 
-#	Procedure: eval_before
-#		Register some code which has to be executed right before reading the TMakefile.
+#    Procedure: eval_before
+#        Register some code which has to be executed right before reading the TMakefile.
 #
-#	Parameters:
-#		proc	- The code to execute
+#    Parameters:
+#        proc    - The code to execute
 proc eval_before { proc } {
-	lappend ::tmk::evalBeforeProcs [uplevel 1 [list namespace code $proc]]
+    lappend ::tmk::evalBeforeProcs [uplevel 1 [list namespace code $proc]]
 
 }
 
-#	Procedure: eval_after
-#		Register some code which has to be executed right before starting to build
-#		the targets (afer reading the TMakefile).
-#		This is used (for example) in the modules.
+#    Procedure: eval_after
+#        Register some code which has to be executed right before starting to build
+#        the targets (afer reading the TMakefile).
+#        This is used (for example) in the modules.
 #
-#	Parameters:
-#		proc	- The code to execute
+#    Parameters:
+#        proc    - The code to execute
 proc eval_after { proc } {
-	lappend ::tmk::evalAfterProcs [uplevel 1 [list namespace code $proc]]
+    lappend ::tmk::evalAfterProcs [uplevel 1 [list namespace code $proc]]
 
 }
 
-#	Procedure: target
-#		Define rule for list of target patterns.
+#    Procedure: target
+#        Define rule for list of target patterns.
 #
-#	Parameters:
-#		targets		- The list of targets to be built
-#		depfiles	- The files that those targets depend on
-#		cmd			- The commands to execute to build the targets
+#    Parameters:
+#        targets        - The list of targets to be built
+#        depfiles    - The files that those targets depend on
+#        cmd            - The commands to execute to build the targets
 #
-#	Return:
-#		The result of adding the target build rules
+#    Return:
+#        The result of adding the target build rules
 proc target { targets depfiles cmd } {
-	set result {}
+    set result {}
 
-	foreach target $targets {
-		set t [targetname_short $target]
-		lappend result $t
-		
-		if $::tmk::alreadyBuilding {
-			exit_msg "defining target $t after building has started."
-		}
-		
-		::tmk::add_rule $t $depfiles $cmd
-		if $::tmk::selfDepend {depend $t "TMakefile"}
-	}
+    foreach target $targets {
+        set t [targetname_short $target]
+        lappend result $t
 
-	return $result
+        if $::tmk::alreadyBuilding {
+            exit_msg "defining target $t after building has started."
+        }
+
+        ::tmk::add_rule $t $depfiles $cmd
+        if $::tmk::selfDepend {depend $t "TMakefile"}
+    }
+
+    return $result
 }
 
-#	Procedure: depend
-#		Define secondary dependencies (those not coming with a building rule).
+#    Procedure: depend
+#        Define secondary dependencies (those not coming with a building rule).
 #
-#	Parameters:
-#		targets		- The targets that require these dependencies
-#		depfiles	- The secondary dependencies needed to build the targets
+#    Parameters:
+#        targets        - The targets that require these dependencies
+#        depfiles    - The secondary dependencies needed to build the targets
 proc depend { targets depfiles } {
-	foreach target $targets {
-		set t [targetname_short $target]
-		if [::tmk::pattern_in_cache $t match] {
-			log_msg "***** WARNING: calling depend for $t after $match has been processed."
-		}
-	
-		::tmk::add_secondaries $t $depfiles
-	}
-} 
+    foreach target $targets {
+        set t [targetname_short $target]
+        if [::tmk::pattern_in_cache $t match] {
+            log_msg "***** WARNING: calling depend for $t after $match has been processed."
+        }
 
-#	Procedure: build
-#		Define which targets to build by default.
+        ::tmk::add_secondaries $t $depfiles
+    }
+}
+
+proc ::tmk::build_helper {targets} {
+    foreach target $targets {
+        set t [targetname_short $target]
+        if $::tmk::alreadyBuilding {
+            exit_msg "calling 'build' after building has already started"
+        }
+        dbg_msg "adding default target $t"
+        lappend ::TARGETS $t
+    }
+}
+
+#    Procedure: build
+#        Define which targets to build by default.
 #
-#	Parameters:
-#		targets	- The targets to build by default
+#    Parameters:
+#        targets    - The targets to build by default
 proc build { targets } {
-	foreach target $targets {
-		set t [targetname_short $target]
-		if $::tmk::alreadyBuilding {
-			exit_msg "calling 'build' after building has already started"
-		}
-		dbg_msg "adding default target $t" 
-		lappend ::TARGETS $t
-	}
+    if {!$::PREBUILD} {
+        ::tmk::build_helper $targets
+    }
 }
 
-#	Procedure: subdir
-#		Recurse into subdirectories of the current directory.
-#		Process outer list of inner lists of subdirectories; all elements of
-#		an inner list can be processed independently (in parallel)
+proc prebuild {targets} {
+    if {$::PREBUILD} {
+        ::tmk::build_helper $targets
+    }
+}
+
+
+#    Procedure: subdir
+#        Recurse into subdirectories of the current directory.
+#        Process outer list of inner lists of subdirectories; all elements of
+#        an inner list can be processed independently (in parallel)
 #
-#	Parameters:
-#		subdirslist	- The subdirectories of the current directory to process
+#    Parameters:
+#        subdirslist    - The subdirectories of the current directory to process
 proc subdir { subdirslist } {
-	set ::SUBDIRS [concat $::SUBDIRS $subdirslist]
+    set ::SUBDIRS [concat $::SUBDIRS $subdirslist]
 }
 
-#	Procedure: local_only
-#		Declare a target local-only.
-#		Local-only targets are not passed to subdirectories
+#    Procedure: local_only
+#        Declare a target local-only.
+#        Local-only targets are not passed to subdirectories
 #
-#	Parameters:
-#		targetlist	- The targets to avoid processing the subdirectories for
+#    Parameters:
+#        targetlist    - The targets to avoid processing the subdirectories for
 proc local_only {targetlist} {
-	foreach target $targetlist {
-		dbg_msg "marking $target as local-only"
-		lappend ::LOCALTARGETS $target
-	}
+    foreach target $targetlist {
+        dbg_msg "marking $target as local-only"
+        lappend ::LOCALTARGETS $target
+    }
 }
 
-#	Procedure: target_matches
-#		Determine if the current build target matches a set of requirements
+#    Procedure: target_matches
+#        Determine if the current build target matches a set of requirements
 #
-#	Parameters:
-#		reqs - The set of requirements. This is a list of requirements;
-#			if the current build target matches any of the requirements, then true is returned.
-#			If the current build target doesn't match any of the requirements, then false is returned.
-#			Each requirement is a list of clauses. In order for the current build target to match
-#			a requirement, all clauses must match. The clauses have the following possible formats:
-#				<name> - Matches if the target os, arch or board is <name>
-#				os=<name> - Matches if the target os is <name>
-#				arch=<name> - Matches if the target arch is <name>
-#				board=<name> - Matches if the target board is <name>
-#			Clauses can also be negated by prefixing with '!', or by using '!=' instead of '='.
+#    Parameters:
+#        reqs - The set of requirements. This is a list of requirements;
+#            if the current build target matches any of the requirements, then true is returned.
+#            If the current build target doesn't match any of the requirements, then false is returned.
+#            Each requirement is a list of clauses. In order for the current build target to match
+#            a requirement, all clauses must match. The clauses have the following possible formats:
+#                <name> - Matches if the target os, arch or board is <name>
+#                os=<name> - Matches if the target os is <name>
+#                arch=<name> - Matches if the target arch is <name>
+#                board=<name> - Matches if the target board is <name>
+#            Clauses can also be negated by prefixing with '!', or by using '!=' instead of '='.
 #
-#	Return:
-#		1 if the current build target matches a requirement, 0 otherwise.
+#    Return:
+#        1 if the current build target matches a requirement, 0 otherwise.
 proc target_matches {reqs} {
-	# if any of the reqs matches, return 1
-	foreach req $reqs {
-		# see if this req matches
-		set success 1
-		foreach clause $req {
-			set clause [string trim $clause]
-			set match 0
-			
-			regexp "^(!)?(?:(os|arch|board)(!)?=)?(.+)" $clause -> n1 type n2 name
-			switch $type {
-				"os" {
-					set match [string equal $name $::TARGET_OS]
-				}
-				"arch" {
-					set match [string equal $name $::TARGET_ARCH]
-				}
-				"board" {
-					set match [string equal $name $::TARGET_BOARD]
-				}
-				default {
-					if {[string equal $name $::TARGET_OS] || [string equal $name $::TARGET_ARCH] || [string equal $name $::TARGET_BOARD]} {
-						set match 1
-					}
-				}
-			}
-			
-			# negate if necessary
-			if {![string equal $n1 $n2]} {
-				set match [expr !$match]
-			}
-			
-			if {!$match} {
-				# didn't match this clause, so didn't match this req. Go on to the next one.
-				set success 0
-				break
-			}
-		}
-		
-		if {$success} {
-			# a req matched
-			return 1
-		}
-	}
-	
-	# otherwise, no reqs matched
-	return 0
+    # if any of the reqs matches, return 1
+    foreach req $reqs {
+        # see if this req matches
+        set success 1
+        foreach clause $req {
+            set clause [string trim $clause]
+            set match 0
+
+            regexp "^(!)?(?:(os|arch|board)(!)?=)?(.+)" $clause -> n1 type n2 name
+            switch $type {
+                "os" {
+                    set match [string equal $name $::TARGET_OS]
+                }
+                "arch" {
+                    set match [string equal $name $::TARGET_ARCH]
+                }
+                "board" {
+                    set match [string equal $name $::TARGET_BOARD]
+                }
+                default {
+                    if {[string equal $name $::TARGET_OS] || [string equal $name $::TARGET_ARCH] || [string equal $name $::TARGET_BOARD]} {
+                        set match 1
+                    }
+                }
+            }
+
+            # negate if necessary
+            if {![string equal $n1 $n2]} {
+                set match [expr !$match]
+            }
+
+            if {!$match} {
+                # didn't match this clause, so didn't match this req. Go on to the next one.
+                set success 0
+                break
+            }
+        }
+
+        if {$success} {
+            # a req matched
+            return 1
+        }
+    }
+
+    # otherwise, no reqs matched
+    return 0
 }
 
-#	Procedure: when_target
-#		Execute code when the current build target matches a list of requirements.
+#    Procedure: get_target_type
+#        Parses a fully-qualified (all clauses use x=y form) target requirement
+#        and returns the specified type
 #
-#	Parameters:
-#		reqs - The list of requirements. See proc target_matches for the format.
-#		code - The code to execute.
+#    Parameters:
+#        reqs    -    The requirements list, formatted as for <target_matches>,
+#                    but fully qualified
+#        type    -    The requirement type to get (os, arch, or board)
+#
+#    Returns:
+#        The requirement value or "" if none can be determined
+proc get_target_type { reqs type } {
+    foreach req $reqs {
+        foreach clause $req {
+            set clause [string trim $clause]
+            if { [regexp "^${type}=(.+)" $clause -> name] } {
+                return $name
+            }
+        }
+    }
+    return ""
+}
+
+#    Procedure: current_target
+#
+#    Returns:
+#        The target requirement list for the active build
+proc current_target {} {
+    set tgt {}
+    if { $::TARGET_OS != "" } {
+        lappend tgt os=${::TARGET_OS}
+    }
+    if { $::TARGET_ARCH != "" } {
+        lappend tgt arch=${::TARGET_ARCH}
+    }
+    if { $::TARGET_BOARD != "" } {
+        lappend tgt board=${::TARGET_BOARD}
+    }
+    return $tgt
+}
+
+#    Procedure: get_target_os
+#        See <get_target_type>.
+proc get_target_os { reqs } {
+    return [get_target_type $reqs os]
+}
+
+#    Procedure: get_target_arch
+#        See <get_target_type>.
+proc get_target_arch { reqs } {
+    return [get_target_type $reqs arch]
+}
+
+#    Procedure: get_target_board
+#        See <get_target_type>.
+proc get_target_board { reqs } {
+    return [get_target_type $reqs board]
+}
+
+#    Procedure: when_target
+#        Execute code when the current build target matches a list of requirements.
+#
+#    Parameters:
+#        reqs - The list of requirements. See proc target_matches for the format.
+#        code - The code to execute.
 proc when_target {reqs code} {
-	# if any of the reqs match, execute the code
-	if {[target_matches $reqs]} {
-		uplevel 1 $code
-	}
+    # if any of the reqs match, execute the code
+    if {[target_matches $reqs]} {
+        uplevel 1 $code
+    }
 }
 
-#	Procedure: when_target_not
-#		Execute code when the current build target does not match a list of requirements.
+#    Procedure: when_target_not
+#        Execute code when the current build target does not match a list of requirements.
 #
-#	Parameters:
-#		reqs - The list of requirements. See proc target_matches for the format.
-#		code - The code to execute.
+#    Parameters:
+#        reqs - The list of requirements. See proc target_matches for the format.
+#        code - The code to execute.
 proc when_target_not {reqs code} {
-	# if none of the reqs match, execute the code
-	if {![target_matches $reqs]} {
-		uplevel 1 $code
-	}
+    # if none of the reqs match, execute the code
+    if {![target_matches $reqs]} {
+        uplevel 1 $code
+    }
 }
 
-#	Procedure: skip
-#		Cause tmk to immediately stop processing the current directory.
+#    Procedure: skip
+#        Cause tmk to immediately stop processing the current directory.
 #
-#	Parameters:
-#		msg - An optional string explaining why the directory is being skipped.
+#    Parameters:
+#        msg - An optional string explaining why the directory is being skipped.
 proc skip {{msg ""}} {
-	set output "Skipping all further processing for [pwd]"
-	if {$msg != ""} {
-		append output " because $msg"
-	}
-	log_msg "${output}."
-	::tmk::write_build_id
-	exit 0
+    set output "Skipping all further processing for [pwd]"
+    if {$msg != ""} {
+        append output " because $msg"
+    }
+    log_msg "${output}."
+    make_tmk_output_dirs
+    ::tmk::write_build_id
+    exit 0
 }
 
-#	Procedure: require_target
-#		Causes tmk to stop processing unless the current build target matches a set of target requirements.
-#		Does not skip if you are just running 'tmk clean'
+#    Procedure: require_target
+#        Causes tmk to stop processing unless the current build target matches a set of target requirements.
+#        Does not skip if you are just running 'tmk clean'
 #
-#	Parameters:
-#		targets - The list of requirements. See proc target_matches for the format.
+#    Parameters:
+#        targets - The list of requirements. See proc target_matches for the format.
 proc require_target {targets} {
-	if {![::tmk::cleaning]} {
-		when_target_not $targets { skip "[::tmk::target_string] is not in the list of required targets" }
-	}
+    if {![::tmk::cleaning]} {
+        when_target_not $targets { skip "[::tmk::target_string] is not in the list of required targets" }
+    }
 }
 
-#	Procedure: exclude_target
-#		Causes tmk to stop processing if the current build target matches a set of target requirements.
+#    Procedure: exclude_target
+#        Causes tmk to stop processing if the current build target matches a set of target requirements.
 #
-#	Parameters:
-#		targets - The list of requirements. See proc target_matches for the format.
+#    Parameters:
+#        targets - The list of requirements. See proc target_matches for the format.
 proc exclude_target {targets} {
-	when_target $targets { skip "[::tmk::target_string] is excluded" }
+    when_target $targets { skip "[::tmk::target_string] is excluded" }
 }
 
-#	Procedure: require
-#		Causes tmk to stop processing unless an expression evaluates to true.
-#		Does not skip if you are just running 'tmk clean'
+#    Procedure: require
+#        Causes tmk to stop processing unless an expression evaluates to true.
+#        Does not skip if you are just running 'tmk clean'
 #
-#	Parameters:
-#		expr - The expression to evaluate to determine if tmk should stop processing.
+#    Parameters:
+#        expr - The expression to evaluate to determine if tmk should stop processing.
 proc require {expr} {
-	if {![::tmk::cleaning]} {
-		uplevel 1 [list if !($expr) [list skip "'$expr' is false"]]
-	}
+    if {![::tmk::cleaning]} {
+        uplevel 1 [list if !($expr) [list skip "'$expr' is false"]]
+    }
 }
 
-#	Procedure: exclude
-#		Causes tmk to stop processing if an expression evaluates to true.
-#		Does not skip if you are just running 'tmk clean'
+#    Procedure: exclude
+#        Causes tmk to stop processing if an expression evaluates to true.
+#        Does not skip if you are just running 'tmk clean'
 #
-#	Parameters:
-#		expr - The expression to evaluate to determine if tmk should stop processing.
+#    Parameters:
+#        expr - The expression to evaluate to determine if tmk should stop processing.
 proc exclude {expr} {
-	if {![::tmk::cleaning]} {
-		uplevel 1 [list if $expr [list skip "'$expr' is true"]]
-	}
+    if {![::tmk::cleaning]} {
+        uplevel 1 [list if $expr [list skip "'$expr' is true"]]
+    }
 }
 
-#	Procedure: set_attr
-#		Set an attribute to an optional value.
+#    Procedure: set_attr
+#        Set an attribute to an optional value.
 #
-#	Parameters:
-#		name - The name of the attribute to set.
-#		value - The optional value to set. The default is 1.
+#    Parameters:
+#        name - The name of the attribute to set.
+#        value - The optional value to set. The default is 1.
 proc set_attr {name {value 1}} {
-	set ::ATTRS($name) $value
+    set ::ATTRS($name) $value
 }
 
-#	Procedure: get_attr
-#		Get the value of an attribute.
+#    Procedure: get_attr
+#        Get the value of an attribute.
 #
-#	Parameters:
-#		name - The name of the attribute to get.
+#    Parameters:
+#        name    -    The name of the attribute to get.
+#        default    -    A default value to return if the attribute doesn't exist
 #
-#	Return:
-#		The value that the attribute was last set to, or {} if the attribute does not exist.
-proc get_attr {name} {
-	if {[info exists ::ATTRS($name)]} {
-		return $::ATTRS($name)
-	}
-	return {}
+#    Return:
+#        The value that the attribute was last set to, or a default if the
+#        attribute does not exist.
+proc get_attr {name {default {}}} {
+    if {[info exists ::ATTRS($name)]} {
+        return $::ATTRS($name)
+    }
+    return $default
 }
 
-#	Procedure: clear_attr
-#		Remove an attribute, so it no longer exists.
+#    Procedure: clear_attr
+#        Remove an attribute, so it no longer exists.
 #
-#	Parameters:
-#		name - The name of the attribute to remove.
+#    Parameters:
+#        name - The name of the attribute to remove.
 proc clear_attr {name} {
-	unset ::ATTRS($name)
+    unset ::ATTRS($name)
 }
 
-#	Procedure: has_attr
-#		Determine if a given attribute exists.
+#    Procedure: has_attr
+#        Determine if a given attribute exists.
 #
-#	Parameters:
-#		name - The name of the attribute to check for.
+#    Parameters:
+#        name - The name of the attribute to check for.
 #
-#	Return:
-#		1 if the attribute exists (was set to something), 0 otherwise.
+#    Return:
+#        1 if the attribute exists (was set to something), 0 otherwise.
 proc has_attr {name} {
-	return [info exists ::ATTRS($name)]
+    return [info exists ::ATTRS($name)]
 }
 
-#	Procedure: exit_msg
-#		Output fatal error and exit with code 1.
+#    Procedure: exit_msg
+#        Output fatal error and exit with code 1.
 #
-#	Parameters:
-#		msg	- The message text to display
+#    Parameters:
+#        msg    - The message text to display
 proc exit_msg { msg } {
 
-	puts stderr "${::tmk::outputPrefix} $msg"
+    puts stderr "${::tmk::outputPrefix} $msg"
+    beep $::BAD_BEEP
+    say "Error: ${msg}!"
 
-	if $::tmk::dbgLevel {
-		# this gives a stack trace
-		error "${::tmk::outputPrefix} exiting."
-	} else {
-		# this only produces the error message and exits
-		puts stderr "${::tmk::outputPrefix} exiting."
-	} 
+    if $::tmk::dbgLevel {
+        # this gives a stack trace
+        error "${::tmk::outputPrefix} exiting ([pwd])."
+    } else {
+        # this only produces the error message and exits
+        puts stderr "${::tmk::outputPrefix} exiting  ([pwd])."
+    }
 
-	exit 1
+    exit 1
 }
 
-#	Procedure: dbg_msg
-#		Output debugging message according to the current debug level.
+#    Procedure: dbg_msg
+#        Output debugging message according to the current debug level.
 #
-#	Parameters:
-#		msg		- The message text to display
-#		level	- The minimum debug level to print at
+#    Parameters:
+#        msg        - The message text to display
+#        level    - The minimum debug level to print at
 proc dbg_msg { msg {level 1} } {
-	if { $level <= $::tmk::dbgLevel } {
-		log_msg "\[dbg\] $msg"
-	}
+    if { $level <= $::tmk::dbgLevel } {
+        log_msg "\[dbg\] $msg"
+    }
 }
 
-#	Procedure: log_msg
-#		Display a log message.
+#    Procedure: log_msg
+#        Display a log message.
 #
-#	Parameters:
-#		msg		- The message text to display
-#		args	- If args contains "noprefix", no prefix is used
+#    Parameters:
+#        msg        - The message text to display
+#        args    - If args contains "noprefix", no prefix is used
 proc log_msg {msg args} {
-	if $::tmk::doLog {
-		if [lcontains $args "noprefix"] {
-			puts stdout $msg
-	} else {
-			puts stdout "${tmk::outputPrefix} $msg"
-		}
-	}
+    if $::tmk::doLog {
+        if [lcontains $args "noprefix"] {
+            puts stdout $msg
+    } else {
+            puts stdout "${tmk::outputPrefix} $msg"
+        }
+    }
 }
 
 # ========================================================================
-#	Group: File and Command Handling Routines
+#    Group: File and Command Handling Routines
 # ========================================================================
 
-#	Procedure: filename_dep
-#		Generate name of file containing dependency information.
+#    Procedure: filename_dep
+#        Generate name of file containing dependency information.
 #
-#	Parameters:
-#		shortname	- The base name of the file
+#    Parameters:
+#        shortname    - The base name of the file
 #
-#	Return:
-#		The name of the dependency file
+#    Return:
+#        The name of the dependency file
 #
-#	See Also:
-#		<require_os>
+#    See Also:
+#        <require_os>
 proc filename_dep { shortname } {return "${shortname}.dep"}
 
-#	Procedure: targetname_long
-#		Generate the full path to the given target's build product.
+#    Procedure: targetname_long
+#        Generate the full path to the given target's build product.
 #
-#	Parameters:
-#		target	- The target to generate the path for
+#    Parameters:
+#        target    - The target to generate the path for
 #
-#	Return:
-#		The full build path
+#    Return:
+#        The full build path
 proc targetname_long { target } {
-	normalize_filevar target
+    set target [normalize_filename $target]
 
-	if {([file pathtype $target] != "relative")} {
-		return $target
-	}
+    if {([file pathtype $target] != "relative")} {
+        return $target
+    }
 
-	set d [file split $target]
-	
-	if {[lindex $d 0] == "__build__"} {
-		return $target
-	}
-	return [eval file join \[tmk_output_dir\] $d]
+    set d [file split $target]
+
+    if {[lindex $d 0] == $::tmk::outputDirPrefix} {
+        return $target
+    }
+    return [eval file join \[tmk_output_dir\] $d]
 }
 
-#	Procedure: targetname_short
-#		Generate the short path to the given target's build product.
+#    Procedure: targetname_short
+#        Generate the short path to the given target's build product.
 #
-#	Parameters:
-#		target	- The target to generate the path for
+#    Parameters:
+#        target    - The target to generate the path for
 #
-#	Return:
-#		The build path
+#    Return:
+#        The build path
 proc targetname_short { target } {
-	normalize_filevar target
+    set target [normalize_filename $target]
 
-	if {[file pathtype $target] != "relative"} {return $target}
-	
-	set d [file split $target]
-	if {[lindex $d 0] != "__build__"} {return $target}
+    if {[file pathtype $target] != "relative"} {return $target}
 
-	set dest [file split [tmk_output_dir]]
-	set len [expr [llength $dest] - 1]
-	set comp [lrange $d 0 $len]
-	
-	if {[file join $dest] == [file join $comp]} {
-		return [eval file join [lrange $d [llength $dest] end]]
-	} else {
-		return $target
-	}
+    set d [file split $target]
+    if {[lindex $d 0] != $::tmk::outputDirPrefix} {return $target}
+
+    set dest [file split [tmk_output_dir]]
+    set len [expr [llength $dest] - 1]
+    set comp [lrange $d 0 $len]
+
+    if {[file join $dest] == [file join $comp]} {
+        return [eval file join [lrange $d [llength $dest] end]]
+    } else {
+        return $target
+    }
 }
 
-#	Procedure: find_in_pathlist
-#		Search for a file (pattern) in a number of directories.
+#    Procedure: find_in_pathlist
+#        Search for a file (pattern) in a number of directories.
 #
-#	Parameters:
-#		filepattern	- Glob pattern to search for
-#		pathlist	- The directories to search in
+#    Parameters:
+#        filepattern    - Glob pattern to search for
+#        pathlist    - The directories to search in
 #
-#	Return:
-#		The list of matching files
+#    Return:
+#        The list of matching files
 proc find_in_pathlist { filepattern pathlist } {
 
-	set full_name_list " "
-	foreach i $filepattern {
-		append full_name_list "[lmap $pathlist {$ITEM/$i}] "
-	}
-	set result [lmap $full_name_list {[glob -nocomplain $ITEM]}]
-	if { [llength $result] > 0 } {
-		dbg_msg "found: \[$result\]" 3
-	} else {
-		dbg_msg "file $filepattern not found in any of \[$pathlist\]" 2
-	}
-	return $result
+    # set full_name_list " "
+    # foreach i $filepattern {
+    #     append full_name_list "[lmap $pathlist {$ITEM/$i}] "
+    # }
+    # set result [lmap $full_name_list {[glob -nocomplain $ITEM]}]
+    # if { [llength $result] > 0 } {
+    #     dbg_msg "found: \[$result\]" 3
+    # } else {
+    #     dbg_msg "file $filepattern not found in any of \[$pathlist\]" 2
+    # }
+    # return $result
+
+    set result [list]
+    foreach dir $pathlist {
+        set result [concat $result [glob -dir $dir -nocomplain -- $filepattern]]
+    }
+    return $result
 }
 
-#	Procedure: normalize_filename
-#		Normalize a file name.
-#		Trim a filename and
-#   	- "//" -> "/"
-#   	- "./" -> ""
-#   	- "x/.." -> ""
-#   	- remove trailing "/"'s
-#
-#	Parameters:
-#		file	- The file name to normalize
-#
-#	Return:
-#		The normalized file name
-proc normalize_filename { file } {
-	return [normalize_filevar file]
+proc normalize_filename {filename} {
+    set parts [lsearch -inline -all -not [file split $filename] .]
+    if {[llength $parts] == 0} {
+        return $filename
+    }
+
+    set result [list]
+    foreach part $parts {
+        if {$part == ".."} {
+            set last [lindex $result end]
+            if {$last != ".." && $last != ""} {
+                set result [lreplace $result end end]
+            } else {
+                lappend result $part
+            }
+        } else {
+            lappend result $part
+        }
+    }
+
+    return [eval file join $result]
 }
 
-#	Procedure: normalize_filevar
-#		Normalizes a file name in place.
-#
-#	Parameters:
-#		_file	- The variable containing the file name to modify
-#
-#	Return:
-#		The modified file name
-#
-#	See Also:
-#		<normalize_filename>
-proc normalize_filevar { _file } {
-	upvar $_file path
-	
-	# split into segments
-	set path [file split $path]
+# create unique name for a project library.
+# - dir is the relative project subdir (e.g. $SUBDIR)
+# - libname is the intended short name for the lib (e.g. $DIRTAIL)
+proc unique_lib_name { dir libname } {
+    set dir [normalize_filename $dir]
+    set libname [normalize_filename $libname]
 
-	# remove ./ if it's not the only thing 
-	set p [lsearch -exact $path "."]
-	while {([llength $path] > 1) && ($p != -1)} {
-		set path [lreplace $path $p $p]
-		set p [lsearch -exact $path "."]
-	}
-
-	# collapse ".."
-	set prepath [list]
-	set p [lsearch -exact [lrange $path 1 end] ".."]
-	while {$p !=-1} {
-		if { [lindex $path 0] == ".."} {
-			set prepath [lappend prepath ".."]
-			set path [lrange $path 1 end]
-		} else {
-			set path [lreplace $path [expr $p] [expr $p + 1]]
-		}
-		
-		set p [lsearch -exact [lrange $path 1 end] ".."]
-	}
-
-	set path [concat $prepath $path]
-
-	# re-construct path from segments
-	set path [eval file join $path]
-
-	return $path
+    set libtail [file tail $libname]
+    set dirtail [file tail $dir]
+    regsub -all {/} $dir {_} dir
+    regsub -all {\.} $dir {} dir
+    if [string compare $libtail $dirtail] {
+        return "${dir}_$libtail"
+    } else {
+        return "${dir}"
+    }
 }
 
 
@@ -615,397 +805,414 @@ proc normalize_filevar { _file } {
 
 # return a string identifying the current build target.
 proc ::tmk::target_string {} {
-	return "\[[string trim [join [list $::TARGET_OS $::TARGET_ARCH $::TARGET_BOARD]]]\]"
+    return "\[[string trim [join [list $::TARGET_OS $::TARGET_ARCH $::TARGET_BOARD]]]\]"
 }
 
 # return 1 if we are just running tmk clean, 0 otherwise
 proc ::tmk::cleaning {} {
-	return [expr [lcontains $::tmk::cmdLineTargets clean] && [string equal $::TARGET_OS ""] && [string equal $::TARGET_ARCH ""] && [string equal $::TARGET_BOARD ""]]
+    return [expr [lcontains $::tmk::cmdLineTargets clean] && [string equal $::TARGET_OS ""] && [string equal $::TARGET_ARCH ""] && [string equal $::TARGET_BOARD ""]]
 }
 
 proc ::tmk::do_eval_before_commands {} {
-	for {set i 0} {$i  < [llength $::tmk::evalBeforeProcs]} {incr i} {
-		uplevel \#0 [lindex $::tmk::evalBeforeProcs $i]
-	}
+    for {set i 0} {$i  < [llength $::tmk::evalBeforeProcs]} {incr i} {
+        uplevel \#0 [lindex $::tmk::evalBeforeProcs $i]
+    }
 }
 
 proc ::tmk::do_eval_after_commands {} {
-	for {set i 0} {$i  < [llength $::tmk::evalAfterProcs]} {incr i} {
-		uplevel \#0 [lindex $::tmk::evalAfterProcs $i]
-	}
+    for {set i 0} {$i  < [llength $::tmk::evalAfterProcs]} {incr i} {
+        uplevel \#0 [lindex $::tmk::evalAfterProcs $i]
+    }
 }
 
 #  execute tcl-script (and check for filename conversion)
 proc ::tmk::source { scriptname } {
-	if {![file readable $scriptname]} {
-		exit_msg "cannot source file ${scriptname}: unreadable"
-	}
-	
-	dbg_msg "executing file $scriptname" 2
-	uplevel 1 ::source [backslash_convert $scriptname]
+    if {![file readable $scriptname]} {
+        exit_msg "cannot source file ${scriptname}: unreadable"
+    }
+
+    dbg_msg "executing file $scriptname" 2
+    uplevel 1 ::source [backslash_convert $scriptname]
 }
 
 proc ::tmk::import { scriptname } {
-	uplevel \#0 ::tmk::source $scriptname
+    uplevel \#0 ::tmk::source $scriptname
 }
 
-# convert (if needed) unix-style filenames to windows-like 
+# convert (if needed) unix-style filenames to windows-like
 proc ::tmk::backslash_convert {fname} {
-	if $tmk::convertFilenames {
-		regsub -all / $fname \\\\\\ fname
-	}
-	
-	return $fname
+    if $tmk::convertFilenames {
+        regsub -all / $fname \\\\\\ fname
+    }
+
+    return $fname
 }
 
 proc ::tmk::write_build_id {} {
-	if {$::tmk::builtSomething} {
-		file mkdir [tmk_output_dir]
-	}
-	if [file exists [tmk_output_dir]] {
-		set idFile [open [file join [tmk_output_dir] __build_id__] w]
-		puts $idFile $::__buildIdentifier
-		close $idFile
-		
-		set modFile [open [file join [tmk_output_dir] __modules__] w]
-		puts $modFile "set premodules {[lsort -unique $::tmk::origPremodules]}"
-		puts $modFile "set postmodules {[lsort -unique $::tmk::origPostmodules]}"
-		close $modFile
-		
-		if {$::tmk::builtSomething} {
-			set builtFile [open [file join [tmk_output_dir] __tmk_built__] w]
-			puts $builtFile "built"
-			close $builtFile
-		}
-	}
-}
+    if [file exists [tmk_output_dir]] {
+        set idFile [open [file join [tmk_output_dir] __build_id__] w]
+        puts $idFile $::__buildIdentifier
+        close $idFile
 
-proc ::tmk::check_module_list {curPremodules curPostmodules} {
-	set modFileName [file join [tmk_output_dir] __modules__]
-	set result 1
-	if [file exists $modFileName] {
-		::tmk::source $modFileName
-		# see if the stored pre/post modules are the same as what we are about to use
-		if {[lsort -unique $curPremodules] != $premodules || [lsort -unique $curPostmodules] != $postmodules} {
-			log_msg "Need to rebuild [pwd] since module set has changed"
-			set result 0
-			echo file delete -force -- [tmk_output_dir]
-		}
-	}
-	
-	return $result
+        if {$::tmk::builtSomething} {
+            set builtFile [open [file join [tmk_output_dir] __tmk_built__] w]
+            puts $builtFile "built"
+            close $builtFile
+        }
+    }
 }
 
 # before recursing into a subdir, check to see if we actually need to.
 # returns 1 if already built, 0 otherwise
 proc ::tmk::check_build_id {} {
-	set result 0
-	set buildIdFile [file join [tmk_output_dir] __build_id__]
-	if [file exists $buildIdFile] {
-		set idFile [open $buildIdFile]
-		if {[gets $idFile line] >= 0} {
-			if {$line == $::__buildIdentifier} {
-				set result 1
-			}
-		}
-		close $idFile
-	}
-	
-	return [expr $result && [::tmk::check_module_list $::tmk::premodules $::tmk::postmodules]]
+    set result 0
+    set buildIdFile [file join [tmk_output_dir] __build_id__]
+    if [file exists $buildIdFile] {
+        set idFile [open $buildIdFile]
+        if {[gets $idFile line] >= 0} {
+            if {$line == $::__buildIdentifier} {
+                set result 1
+            }
+        }
+        close $idFile
+    }
+
+    return $result
 }
 
 # determine absolute path in which this script resides
 proc ::tmk::get_script_name {} {
-	# already an absolute path? -> finished
-	set name [info script]
-	set pt   [file pathtype $name] 
-	if {$pt != "absolute"} {
-		# no path? -> search in $env(PATH)
-		if {[llength [file split $name]] == 1} {
-			set w [lindex [find_in_pathlist $name $::env(PATH)] 0]
-			if {$w == {}} {
-				exit_msg "could not find tmk script in path.\n  please set the TMK_HOME environment variable." 
-			}
-			set name $w
-		} else {
-			# relative path, insert [pwd]
-			switch $pt {
-				"relative" {
-					set name [file join [pwd] $name]
-				}
-				"volumerelative" {
-					foreach vol [file volumes] {
-						set found 0
-						set path [file join $vol $name]
-						if [file exists $path] {
-							set name $path
-							set found 1
-							break
-						}
-					}
-					if {!$found} {
-						exit_err "could not determine absolute path for $name."
-					}
-				}
-			}
-		}
-	}
+    # already an absolute path? -> finished
+    set name [info script]
+    set pt   [file pathtype $name]
+    if {$pt != "absolute"} {
+        # no path? -> search in $env(PATH)
+        if {[llength [file split $name]] == 1} {
+            set w [lindex [find_in_pathlist $name $::env(PATH)] 0]
+            if {$w == {}} {
+                exit_msg "could not find tmk script in path.\n  please set the TMK_HOME environment variable."
+            }
+            set name $w
+        } else {
+            # relative path, insert [pwd]
+            switch $pt {
+                "relative" {
+                    set name [file join [pwd] $name]
+                }
+                "volumerelative" {
+                    foreach vol [file volumes] {
+                        set found 0
+                        set path [file join $vol $name]
+                        if [file exists $path] {
+                            set name $path
+                            set found 1
+                            break
+                        }
+                    }
+                    if {!$found} {
+                        exit_err "could not determine absolute path for $name."
+                    }
+                }
+            }
+        }
+    }
 
-	# now we know the absolute path; we only have to follow links to the end
-	while {[file type $name] == "link"} { 
-		set link [file readlink $name]
-		if {[file pathtype $link] == "relative"} {
-			# relative in that case means relative to dir in which link resides
-			set name [file join [file dirname $name] $link]
-		} else {
-			set name $link
-		}
-	}
-	
-	return [normalize_filename $name]
+    # now we know the absolute path; we only have to follow links to the end
+    while {[file type $name] == "link"} {
+        set link [file readlink $name]
+        if {[file pathtype $link] == "relative"} {
+            # relative in that case means relative to dir in which link resides
+            set name [file join [file dirname $name] $link]
+        } else {
+            set name $link
+        }
+    }
+
+    return [normalize_filename $name]
 }
 
 proc ::tmk::read_board_file {} {
-	set filename "${::TARGET_BOARD}.tmk"
-	set dirs {}
-	lappend dirs $::tmk::boardsDir
-	lappend dirs [file join $::PROJROOT boards]
-	lappend dirs [file join $::PROJDIR boards]
-	set boardfiles [find_in_pathlist $filename $dirs]
-	if {[llength $boardfiles] == 0} {
-		log_msg "No board definition file found for $::TARGET_BOARD"
-	} else {
-		foreach file $boardfiles {
-			::tmk::read_makefile $file
-		}
-	}
+    set filename "${::TARGET_BOARD}.tmk"
+    set dirs {}
+    lappend dirs $::tmk::boardsDir
+    lappend dirs [file join $::PROJROOT boards]
+    lappend dirs [file join $::PROJDIR boards]
+    set boardfiles [find_in_pathlist $filename $dirs]
+    if {[llength $boardfiles] == 0} {
+        log_msg "No board definition file found for $::TARGET_BOARD"
+    } else {
+        foreach file $boardfiles {
+            ::tmk::read_makefile $file
+        }
+    }
 }
 
-# process a makefile. 
+# process a makefile.
 proc ::tmk::read_makefile { makefilename } {
 
-	if [file readable $makefilename] { 
-		# simply parse the makefile as TCL source code in global context
-		dbg_msg "----- begin processing $makefilename -----"
-		::tmk::import $makefilename
-		dbg_msg "----- end processing $makefilename -----"
-	} else { 
-		exit_msg "could not read $makefilename"
-	}
+    if [file readable $makefilename] {
+        # simply parse the makefile as TCL source code in global context
+        dbg_msg "----- begin processing $makefilename -----"
+        ::tmk::import $makefilename
+        dbg_msg "----- end processing $makefilename -----"
+    } else {
+        exit_msg "could not read $makefilename"
+    }
 }
 
 # search for "TMakefile.proj", and set PROJDIR
 proc ::tmk::find_global_makefiles {} {
-	set projectMakefile ""
-	set path [pwd]
-	set oldPath "dummy$path" 
-	set found 0
-	while { $path != $oldPath } {
-		set file "$path/TMakefile.proj"
-		if [file readable $file] {
-			set projectMakefile [normalize_filename $file]
-			set ::PROJDIR [file dirname $file]
-			normalize_filevar ::PROJDIR
-			dbg_msg "found $file"
-			set found 1
-			break
-		}
-		
-		dbg_msg "no readable file $file" 2
-		set oldPath $path
-		set path [file dirname $path]
-	}
+    set projectMakefile ""
+    set path [pwd]
+    set oldPath "dummy$path"
+    set found 0
+    while { $path != $oldPath } {
+        set file "$path/TMakefile.proj"
+        if [file readable $file] {
+            set projectMakefile [normalize_filename $file]
+            set ::PROJDIR [normalize_filename [file dirname $file]]
+            dbg_msg "found $file"
+            set found 1
+            break
+        }
 
-	if {!$found} {
-		set ::PROJDIR [pwd]
-		dbg_msg "no TMakefile.proj found, setting PROJDIR to $::PROJDIR"
-	}
-	
-	set ::PROJROOT [file dirname $::PROJDIR]
-	set ::SUBDIR   [string range [pwd] [expr [string length $::PROJROOT] + 1] end]
-	set ::DIRTAIL  [file tail $::SUBDIR]
-	
-	return $projectMakefile
+        dbg_msg "no readable file $file" 2
+        set oldPath $path
+        set path [file dirname $path]
+    }
+
+    if {!$found} {
+        set ::PROJDIR [pwd]
+        dbg_msg "no TMakefile.proj found, setting PROJDIR to $::PROJDIR"
+    }
+
+    set ::PROJROOT [file dirname $::PROJDIR]
+    set ::SUBDIR   [string range [pwd] [expr [string length $::PROJROOT] + 1] end]
+    set ::DIRTAIL  [file tail $::SUBDIR]
+
+    set ::env(TMK_PROJDIR)  $::PROJDIR
+    set ::env(TMK_PROJROOT) $::PROJROOT
+    set ::env(TMK_SUBDIR)   $::SUBDIR
+    set ::env(TMK_DIRTAIL)  $::DIRTAIL
+
+    return $projectMakefile
 }
 
-# check if the single pattern matches any target in the cache 
+# check if the single pattern matches any target in the cache
 # return matched target if any
 proc ::tmk::pattern_in_cache {pat {matchVar __xxx}} {
-	set names [array names ::tmk::targetCache]
-	set t [lsearch -glob $names $pat]
-	if {$t != -1} {
-		upvar $matchVar up
-		set up [lindex $names $t]
-		return 1
-	}
-	return 0
+    set names [array names ::tmk::targetCache]
+    set t [lsearch -glob $names $pat]
+    if {$t != -1} {
+        upvar $matchVar up
+        set up [lindex $names $t]
+        return 1
+    }
+    return 0
 }
 
 # find a module file in the appropriate path
 proc ::tmk::find_module_file {module {pathvarname __xxx}} {
-	set mod [string tolower $module]
-	# search module file in a path
-	set dirs .
-	if [info exists ::env(TMK_MODULE_PATH)] {
-		set dirs [concat $dirs $::env(TMK_MODULE_PATH)]
-	}
-	lappend dirs $::tmk::modulesDir
-	
-	# also look in EXTRA_SEARCH_PATHS
-	foreach extra $::EXTRA_SEARCH_PATHS {
-		lappend dirs [file join $::PROJDIR $extra]
-	}
-	foreach extra $::EXTRA_SEARCH_PATHS {
-		lappend dirs [file join $::PROJROOT $extra]
-	}
+    set mod [string tolower $module]
+    # search module file in a path
+    set dirs .
+    if [info exists ::env(TMK_MODULE_PATH)] {
+        set dirs [concat $dirs $::env(TMK_MODULE_PATH)]
+    }
+    lappend dirs $::tmk::modulesDir
 
-	# pass path to caller
-	upvar $pathvarname path
-	set path $dirs
+    # also look in EXTRA_SEARCH_PATHS
+    foreach extra $::EXTRA_SEARCH_PATHS {
+        lappend dirs [file join $::PROJDIR $extra]
+    }
+    foreach extra $::EXTRA_SEARCH_PATHS {
+        lappend dirs [file join $::PROJROOT $extra]
+    }
 
-	# now look for the first one we find
-	return [lindex [find_in_pathlist $mod.tmk $dirs] 0]
+    # pass path to caller
+    upvar $pathvarname path
+    set path $dirs
+
+    # now look for the first one we find
+    return [lindex [find_in_pathlist $mod.tmk $dirs] 0]
 }
 
 # look which of the module macros are set, and trigger corresponding action
 # return if any variable was found
 proc ::tmk::eval_module_macros { names } {
-	set found 0
-	foreach name $names {
-		set name [string tolower $name]
-		foreach var [array names ::tmk::MODULE_ACTION] {
-			if {[info vars ::${name}::${var}] != {}} {
-				set found 1
-				dbg_msg "executing config macro $var for module $name" 2
-				uplevel \#0 "set __MODNAME $name"
-				uplevel \#0 namespace eval ::$name [list $::tmk::MODULE_ACTION($var)]
-			}
-		}
-	}
-	return $found
+    set found 0
+    foreach name $names {
+        set name [string tolower $name]
+        foreach var [array names ::tmk::MODULE_ACTION] {
+            if {[info vars ::${name}::${var}] != {}} {
+                set found 1
+                dbg_msg "executing config macro $var for module $name" 2
+                uplevel \#0 "set __MODNAME $name"
+                uplevel \#0 namespace eval ::$name [list $::tmk::MODULE_ACTION($var)]
+            }
+        }
+    }
+    return $found
 }
 
 # process all subdirs that have been declared so far
 proc ::tmk::process_subdirs {} {
-	if {[llength ::SUBDIRS] < 1} {
-		dbg_msg "no subdirs specified" 2
-	}
+    if {[llength ::SUBDIRS] < 1} {
+        dbg_msg "no subdirs specified" 2
+    }
 
-	# conditions under which we should not process subdirectories
-	if [llength $::tmk::localTargets] {
-		if {![llength $::tmk::normalTargets]} {
-			dbg_msg "only local targets specified  - skipping subdirs"
-			return
-		}
-	}
+    # conditions under which we should not process subdirectories
+    if [llength $::tmk::localTargets] {
+        if {![llength $::tmk::normalTargets]} {
+            dbg_msg "only local targets specified  - skipping subdirs"
+            return
+        }
+    }
 
-	# remember where we are now
-	dbg_msg "processing subdirs: $::SUBDIRS" 2
-	set currentdir [pwd]
-	normalize_filevar currentdir
+    # remember where we are now
+    dbg_msg "processing subdirs: $::SUBDIRS" 2
+    set currentdir [pwd]
 
-	# normalize path names
-	set ::SUBDIR_EXCLUDE [lmap $::SUBDIR_EXCLUDE {[normalize_filevar ITEM]}]
+    # normalize path names
+    set ::SUBDIR_EXCLUDE [lmap $::SUBDIR_EXCLUDE {normalize_filename $ITEM}]
 
-	# loop through outer list
-	set changed 0
-	foreach subdirs $::SUBDIRS {
-		if {[handle_subdirs $subdirs $currentdir]} {
-			set changed 1
-		}
-	}
-	
-	if $changed { 
-		log_msg "" noprefix
-		log_msg "back in directory $currentdir"
-	}   
+    # loop through outer list
+    set changed 0
+    foreach subdirs $::SUBDIRS {
+        if {[handle_subdirs $subdirs $currentdir]} {
+            set changed 1
+        }
+    }
+
+    if $changed {
+        log_msg "" noprefix
+        log_msg "back in directory $currentdir"
+    }
 }
 
 proc ::tmk::handle_subdirs {subdirs currentdir} {
-	# normalize path names
-	set subdirs [lmap $subdirs {[normalize_filevar ITEM]}]
+    # normalize path names
+    set subdirs [lmap $subdirs {normalize_filename $ITEM}]
 
-	# exclude certain directories from subdirectory list
-	set subdirs [lminus $subdirs $::SUBDIR_EXCLUDE]
+    # exclude certain directories from subdirectory list
+    set subdirs [lminus $subdirs $::SUBDIR_EXCLUDE]
 
-	# exclude everything which is not a directory
-	set subdirs [lfilter $subdirs {[file isdirectory $ITEM]}]
+    # exclude everything which is not a directory
+    set subdirs [lfilter $subdirs {[file isdirectory $ITEM]}]
 
-	# use only those dirs  where we find a TMakefile
-	set subdirs [lfilter $subdirs {[file exists $ITEM/TMakefile]}]
+    # use only those dirs  where we find a TMakefile
+    set subdirs [lfilter $subdirs {[file exists $ITEM/TMakefile]}]
 
-	# recursively call tmk in all those items that are directories
-	set subargs {}
-	if {![info exists tmk::inSubdir] || !$tmk::inSubdir} {
-		lappend subargs -__in_subdir -D __buildIdentifier=$::__buildIdentifier 
-	}
+    # recursively call tmk in all those items that are directories
+    set subargs {}
+    if {![info exists tmk::inSubdir] || !$tmk::inSubdir} {
+        lappend subargs -__in_subdir -D __buildIdentifier=$::__buildIdentifier
+        if {$::PREBUILD} {
+            lappend subargs -__prebuild_file $::PREBUILD_FILE
+        }
+    }
 
-	set changed 0
-	foreach dir $subdirs {
-		
-		if {[lcontains $::tmk::visitedSubdirs $dir]} {
-			continue
-		}
-		
-		# execute tmk in subdir; make sure stdout/stderr 
-		# remain the same
-		cd $dir
-		if {![check_build_id]} {
-			set cmd "$::TMK $subargs $::ARGS >@stdout 2>@stderr <@stdin"
-			dbg_msg "calling $cmd"
+    set changed 0
+    foreach dir $subdirs {
 
-			if { [catch "exec --  $cmd" msg] != 0 } {
-				exit_msg $msg
-			}
-			set changed 1
-		} else {
-			log_msg "Already built in $dir."
-		}
-		
-		lappend ::tmk::visitedSubdirs $dir
-		
-		cd $currentdir
-	}
-	
-	return $changed
+        if {[lcontains $::tmk::visitedSubdirs $dir]} {
+            continue
+        }
+
+        # execute tmk in subdir; make sure stdout/stderr
+        # remain the same
+        cd $dir
+        if {![check_build_id]} {
+            set cmd "$::TMK $subargs $::ARGS >@stdout 2>@stderr <@stdin"
+            dbg_msg "calling $cmd"
+
+            if { [catch "exec -- $cmd" msg] != 0 } {
+                exit_msg $msg
+            }
+            set changed 1
+        } else {
+            log_msg "Already built in $dir."
+        }
+
+        lappend ::tmk::visitedSubdirs $dir
+
+        cd $currentdir
+    }
+
+    return $changed
 }
-
 
 # recursively list all children namespaces of a given absolute namespace
 proc ::tmk::children_namespaces {ns} {
-	namespace eval $ns {}
-	set ch [namespace eval :: [list namespace children $ns]]
-	set result {}
-	foreach c $ch {
-		lappend result $c
-		set result [concat $result [::tmk::children_namespaces $c]]
-	}
-	return $result
+    namespace eval $ns {}
+    set ch [namespace eval :: [list namespace children $ns]]
+    set result {}
+    foreach c $ch {
+        lappend result $c
+        set result [concat $result [::tmk::children_namespaces $c]]
+    }
+    return $result
 }
 
 # return normalized absolute namespace for a given variable or procedure
 proc ::tmk::full_namespace {name} {
-	set name [string trim $name]
-	set ns [namespace qualifiers $name]
-	if {($ns == {}) && ([string range $name 0 1] == "::")} {
-		set ns "::"
-	} else {
-		set ns "[uplevel 1 namespace current]::$ns"
-	}
-	set ns [split $ns ":"]
-	lremove ns {}
-	return ::[join $ns "::"]
+    set name [string trim $name]
+    set ns [namespace qualifiers $name]
+    if {($ns == {}) && ([string range $name 0 1] == "::")} {
+        set ns "::"
+    } else {
+        set ns "[uplevel 1 namespace current]::$ns"
+    }
+    set ns [split $ns ":"]
+    lremove ns {}
+    return ::[join $ns "::"]
 }
-	
+
+proc ::tmk::do_prebuild_commands {} {
+    ::tmk::source $::PREBUILD_FILE
+
+    package require Thread
+    set pool [tpool::create -maxworkers $::tmk::numThreads]
+    set jobs [list]
+    foreach cmd $prebuildCmds {
+        if $::tmk::doLog {
+            foreach subcmd $cmd {
+                if {[lindex $subcmd 0] == "exec"} {
+                    puts [lrange $subcmd 1 end]
+                } else {
+                    puts $subcmd
+                }
+            }
+        }
+
+        set rule {
+            foreach subcmd {$cmd} {
+                if {[catch {if {1} \$subcmd} m] && ![string equal \$::errorCode NONE]} {
+                    error "Error while executing <$cmd>: \$m"
+                }
+            }
+        }
+        lappend jobs [tpool::post $pool [subst -nocommands $rule]]
+    }
+
+    puts "Waiting for [llength $jobs] jobs..."
+    foreach job $jobs {
+        tpool::wait $pool $job
+        if {[catch {tpool::get $pool $job} m]} {
+            exit_msg $m
+        }
+    }
+}
+
 # ========================================================================
 # tmk general state init
 # ========================================================================
-	
+
 # system check (pre-config, just for file name conventions etc.)
 set ::tmk::system $tcl_platform(os)
 if {$::tmk::system == {}} {set tmk::system "<unknown>"}
 
-# windows? 
+# windows?
 set ::tmk::isWindowsSystem [regexp "\[wW\]indows" $tmk::system ""]
 set ::tmk::convertFilenames [expr $tmk::isWindowsSystem]
 
@@ -1022,19 +1229,21 @@ set ::tmk::forceReconfig 0
 set ::tmk::sysInfoOnly 0
 set ::tmk::inSubdir 0
 
-set ::tmk::premodules						{}
-set ::tmk::postmodules						{}
-set ::tmk::origPremodules					{}
-set ::tmk::origPostmodules					{}
-set ::tmk::cmdLineTargets					{}
-set ::tmk::evalBeforeProcs					{}			; # code stored by "eval_before"
-set ::tmk::evalAfterProcs					{}			; # code stored by "eval_after"
-set ::tmk::outputPrefix						"tmk:"		; # log message prefix
-set ::tmk::outputDir						""
+set ::tmk::premodules                        {}
+set ::tmk::postmodules                        {}
+set ::tmk::cmdLineTargets                    {}
+set ::tmk::evalBeforeProcs                    {}            ; # code stored by "eval_before"
+set ::tmk::evalAfterProcs                    {}            ; # code stored by "eval_after"
+set ::tmk::outputPrefix                        "tmk:"        ; # log message prefix
+set ::tmk::numThreads                        1
 
-set ::tmk::visitedSubdirs					[pwd]
+array set ::tmk::hashCache                    {}
 
-set ::tmk::builtSomething					0
+set ::tmk::outputDirPrefix                    "__build__"
+
+set ::tmk::visitedSubdirs                    [pwd]
+
+set ::tmk::builtSomething                    0
 
 set ::__buildIdentifier ""
 
@@ -1046,6 +1255,9 @@ set ::CODELEVEL "dbg"
 
 array set ::ATTRS {}
 
+set ::PREBUILD 0
+set ::PREBUILD_FILE ""
+set ::POSTBUILD 0
 set ::TARGETS   {}
 set ::MODULES   {}
 set ::EXCLUDE   {}
@@ -1058,15 +1270,22 @@ set ::TARGET_BOARD ""
 
 set ::EXTRA_SEARCH_PATHS {}
 
-# on Windows, should use the registry packagex
+set ::PROFILING 0
+
+set ::SAY 0
+set ::BEEP 0
+
+# on Windows, should use the registry package
 set ::tmk::useRegistry 0
 if { $::tmk::isWindowsSystem} {
-	if { 0 == [ catch { package require registry } ] } {
-		set ::tmk::useRegistry 1
-	} else {
-		dbg_msg "warning: could not load 'registry' package"
-	}
+    if { 0 == [ catch { package require registry } ] } {
+        set ::tmk::useRegistry 1
+    } else {
+        dbg_msg "warning: could not load 'registry' package"
+    }
 }
+
+set ::tmk::doPrebuildCmds 0
 
 # =====================
 # paths / config
@@ -1075,26 +1294,26 @@ if { $::tmk::isWindowsSystem} {
 # the directory where tmk is installed. used for finding modules etc.
 set ::tmk::scriptName [::tmk::get_script_name]
 if [ catch { set ::tmk::dir $::env(TMK_HOME) } ] {
-	set ::tmk::dir [file dirname [file dirname $::tmk::scriptName]]
-} 
+    set ::tmk::dir [file dirname [file dirname $::tmk::scriptName]]
+}
 
-# convert backslashes to slashes 
+# convert backslashes to slashes
 # (otherwise they would be treated as control characters like \t)
 if $tmk::convertFilenames {
-	regsub -all \\\\ $::tmk::dir / ::tmk::dir
+    regsub -all \\\\ $::tmk::dir / ::tmk::dir
 }
-set ::tmk::srcDir		[file join $::tmk::dir src]
-set ::tmk::configDir	[file join $::tmk::dir config]
-set ::tmk::modulesDir	[file join $::tmk::dir modules]
-set ::tmk::boardsDir	[file join $::tmk::dir boards]
-set ::tmk::privateDir	[file join $::tmk::dir usr]
+set ::tmk::srcDir        [file join $::tmk::dir src]
+set ::tmk::configDir    [file join $::tmk::dir config]
+set ::tmk::modulesDir    [file join $::tmk::dir modules]
+set ::tmk::boardsDir    [file join $::tmk::dir boards]
+set ::tmk::privateDir    [file join $::tmk::dir usr]
 catch {set ::tmk::privateDir [file join $env(HOME) .tmk]}
 
 # set TMK to the right tclsh call
 if [info exists ::env(TMK_TCLSH) ]  {
-	set ::TMK "$::env(TMK_TCLSH) $argv0"
+    set ::TMK "$::env(TMK_TCLSH) $argv0"
 } else {
-	set ::TMK "tclsh $argv0"
+    set ::TMK "tclsh $argv0"
 }
 
 # ===============
@@ -1102,135 +1321,192 @@ if [info exists ::env(TMK_TCLSH) ]  {
 # ===============
 
 proc ::tmk::main {argv0 argv} {
-	
-	::tmk::import [file join $tmk::srcDir utils.tmk]
-	
-	# where are we?
-	log_msg "" noprefix
-	log_msg "in directory [pwd]"
-	
-	::tmk::import [file join $::tmk::srcDir cmdline.tmk]
-	::tmk::import [file join $::tmk::srcDir module_macro_vars.tmk]
-	::tmk::import [file join $::tmk::srcDir build.tmk]
 
-	# parse command line and remember things to do later
-	::tmk::parse_command_line $argv0 $argv
-	
-	set ::tmk::origPremodules $::tmk::premodules
-	set ::tmk::origPostmodules $::tmk::postmodules
-	
-	# find project and private makefile, set PROJDIR etc.
-	# but do not yet execute these files
-	set mfs [::tmk::find_global_makefiles]
-	
-	# set up output directory based on os/arch
-	set ::tmk::outputDir [file join $::TARGET_OS $::TARGET_ARCH]
-	if {$::TARGET_BOARD != ""} {
-		# if -board was specified, find the board definition file and execute it
-		::tmk::read_board_file
+    ::tmk::import [file join $tmk::srcDir utils.tmk]
 
-		set ::tmk::outputDir [file join $::TARGET_BOARD $::TARGET_OS]
-	}
-	
-	if {!$::tmk::inSubdir} {
-		# see if the set of passed-in modules has changed
-		::tmk::check_module_list $::tmk::origPremodules $::tmk::origPostmodules
-	}
-	
-	# do configuration
-	::tmk::import [file join $::tmk::configDir config.tmk]
+    # where are we?
+    log_msg "" noprefix
+    log_msg "in directory [pwd]"
 
-	# load default module
-	module default
+    ::tmk::import [file join $::tmk::srcDir cmdline.tmk]
+    ::tmk::import [file join $::tmk::srcDir module_macro_vars.tmk]
+    ::tmk::import [file join $::tmk::srcDir build.tmk]
 
-	# set build ID
-	if {$::__buildIdentifier == ""} {
-		set ::__buildIdentifier "[clock seconds][clock clicks]"
-		dbg_msg "New build ID: $::__buildIdentifier"
-	} else {
-		dbg_msg "Using build ID: $::__buildIdentifier"
-	}
-	
-	# read and execute proj/priv makefiles
-	foreach mf $mfs {
-		set oldDir [pwd]
-		cd [backslash_convert $::PROJDIR]
-		::tmk::read_makefile $mf
-		cd $oldDir
-	}
-	
-	# exec commands that are supposed to occur before reading the TMakefile
-	::tmk::do_eval_before_commands
+    # parse command line and remember things to do later
+    ::tmk::parse_command_line $argv0 $argv
 
-	# mark ALWAYS_BUILD targets as updated
-	mark_target_updated ALWAYS_BUILD 0 1
+    if { !$::tmk::inSubdir } {
+        if { [::tmk::cleaning] } {
+            say "Cleaning in [pwd]"
+        } else {
+            say "Building for ${::TARGET_OS} ${::TARGET_ARCH} ${::TARGET_BOARD} in [pwd]"
+        }
+    }
 
-	#  read / parse / execute the TMakefile
-	::tmk::read_makefile "TMakefile"
-	
-	# execute commands that are supposed to occur after reading the TMakefile
-	::tmk::do_eval_after_commands
+    if {$::PROFILING} {
+        profile -commands on
+    }
 
-	# if targets are spec'd on the cmd line, process only those.
-	if { [llength $::tmk::cmdLineTargets] > 0 } {
-		set ::TARGETS $::tmk::cmdLineTargets
-	}
+    if {$::PREBUILD} {
+        ::tmk::import [file join $::tmk::srcDir threads_prebuild.tmk]
+    } else {
+        ::tmk::import [file join $::tmk::srcDir threads.tmk]
+    }
 
-	# split local-only and normal targets
-	set __cond {[lcontains $::LOCALTARGETS [targetname_short $ITEM]]}
-	set ::tmk::localTargets  [lfilter $::TARGETS $__cond]
-	set ::tmk::normalTargets [lfilter $::TARGETS "!$__cond"]
-	
-	# clean up ARGS
-	# remove local-only targets from command line
-	foreach x $::tmk::localTargets {lremove ::ARGS $x}
-	# fix pre- and post-modules
-	lremove ::ARGS -a 1
-	lremove ::ARGS -z 1
-	foreach mod [lsort -unique $::tmk::premodules] {
-		lappend ::ARGS -a $mod
-	}
-	foreach mod [lsort -unique $::tmk::postmodules] {
-		lappend ::ARGS -z $mod
-	}
+    # find project and private makefile, set PROJDIR etc.
+    # but do not yet execute these files
+    set mfs [::tmk::find_global_makefiles]
 
-	# bottom-up? then process subdirectories now, before the local targets
-	if {$::SUBDIR_PROCESSING == "bottom-up"} {process_subdirs}
-	
-	# go through explicit list of targets and build them
-	if { [llength $::TARGETS] > 0 } {
-		
-		dbg_msg "toplevel targets: $::TARGETS"
-		
-		foreach target $::TARGETS {
-			set result [::tmk::build target msg]
-			if { $result == "failed" } {
-				exit_msg $msg
-			} elseif { $result == "untouched" } {
-				log_msg "nothing to be done for $target"
-			} elseif { $result == "exclude" } {
-				log_msg "$target skipped due to exclusion"
-			}
-		}
-	} else {
-		log_msg "no targets in [pwd]."
-	}
-	
-	# write build ID
-	::tmk::write_build_id
+    if { $::TARGET_BOARD != "" } {
+        # if -board was specified, find the board definition file and execute it
+        ::tmk::read_board_file
+    }
 
-	# top-down? then process subdirectories now, after the local targets
-	if {$::SUBDIR_PROCESSING == "top-down"} {::tmk::process_subdirs}
-} 
+    if {$::PREBUILD && $::PREBUILD_FILE == ""} {
+        make_tmk_output_dirs
+        set ::PREBUILD_FILE [file join [pwd] [tmk_output_dir] __prebuild_commands__]
+        set ::tmk::doPrebuildCmds 1
+
+        set prebuildFile [open $::PREBUILD_FILE "w"]
+        puts $prebuildFile "set prebuildCmds \{"
+        close $prebuildFile
+    }
+
+    # do configuration
+    ::tmk::import [file join $::tmk::configDir config.tmk]
+
+    if {$::tmk::numThreads == "x"} {
+        if {$::OS == "osx"} {
+            set cpus [exec sysctl -n hw.ncpu]
+            set ::tmk::numThreads [expr 2 * $cpus]
+        } else {
+            set ::tmk::numThreads 2
+        }
+    }
+
+    # load default module
+    module default
+
+    # set build ID
+    if {$::__buildIdentifier == ""} {
+        set ::__buildIdentifier "[clock seconds][clock clicks]"
+        dbg_msg "New build ID: $::__buildIdentifier"
+    } else {
+        dbg_msg "Using build ID: $::__buildIdentifier"
+    }
+
+    # read and execute proj/priv makefiles
+    foreach mf $mfs {
+        set oldDir [pwd]
+        cd [backslash_convert $::PROJDIR]
+        ::tmk::read_makefile $mf
+        cd $oldDir
+    }
+
+    # exec commands that are supposed to occur before reading the TMakefile
+    ::tmk::do_eval_before_commands
+
+    # mark ALWAYS_BUILD targets as updated
+    mark_target_updated ALWAYS_BUILD 0 1
+
+    #  read / parse / execute the TMakefile
+    ::tmk::read_makefile "TMakefile"
+
+    # execute commands that are supposed to occur after reading the TMakefile
+    ::tmk::do_eval_after_commands
+
+    # if targets are spec'd on the cmd line, process only those.
+    if { [llength $::tmk::cmdLineTargets] > 0 } {
+        set ::TARGETS $::tmk::cmdLineTargets
+    }
+
+    # split local-only and normal targets
+    set __cond {[lcontains $::LOCALTARGETS [targetname_short $ITEM]]}
+    set ::tmk::localTargets  [lfilter $::TARGETS $__cond]
+    set ::tmk::normalTargets [lfilter $::TARGETS "!$__cond"]
+
+    # clean up ARGS
+    lremove ::ARGS -prebuild
+    # remove local-only targets from command line
+    foreach x $::tmk::localTargets {lremove ::ARGS $x}
+    # fix pre- and post-modules
+    lremove ::ARGS -a 1
+    lremove ::ARGS -z 1
+    foreach mod [lsort -unique $::tmk::premodules] {
+        lappend ::ARGS -a $mod
+    }
+    foreach mod [lsort -unique $::tmk::postmodules] {
+        lappend ::ARGS -z $mod
+    }
+
+    # bottom-up? then process subdirectories now, before the local targets
+    if {$::SUBDIR_PROCESSING == "bottom-up"} {process_subdirs}
+
+    if { ![::tmk::cleaning] } {
+        make_tmk_output_dirs
+    }
+
+    # go through explicit list of targets and build them
+    if { [llength $::TARGETS] > 0 } {
+
+        if {$::tmk::numThreads > 1} {
+            ::tmk::init_threaded $::tmk::numThreads
+        }
+
+        dbg_msg "toplevel targets: $::TARGETS"
+
+        foreach target $::TARGETS {
+            set result [::tmk::build target msg]
+            if { $result == "failed" } {
+                exit_msg $msg
+            } elseif { $result == "untouched" } {
+                log_msg "nothing to be done for $target"
+            } elseif { $result == "exclude" } {
+                log_msg "$target skipped due to exclusion"
+            }
+        }
+
+        if {$::tmk::numThreads > 1} {
+            ::tmk::destroy_threaded
+        }
+    } else {
+        log_msg "no targets in [pwd]."
+    }
+
+    # write build ID
+    ::tmk::write_build_id
+
+    # top-down? then process subdirectories now, after the local targets
+    if {$::SUBDIR_PROCESSING == "top-down"} {::tmk::process_subdirs}
+
+    if {$::tmk::doPrebuildCmds} {
+        set prebuildFile [open $::PREBUILD_FILE "a"]
+        puts $prebuildFile "\}"
+        close $prebuildFile
+
+        ::tmk::do_prebuild_commands
+    }
+
+    if {$::PROFILING} {
+        profile off profarray
+        make_tmk_output_dirs
+        profrep profarray cpu [file join [tmk_output_dir] profdata.txt]
+    }
+}
 
 if {!$::tmk::inSubdir} {
-	set ::tmk::startTime [clock seconds]
+    set ::tmk::startTime [clock seconds]
 }
 
 ::tmk::main $argv0 $argv
- 
+
 if {!$::tmk::inSubdir} {
-	set ::tmk::endTime [clock seconds]
-	set ::tmk::runningTime [expr $::tmk::endTime - $::tmk::startTime]
-	log_msg "finished [expr $::tmk::runningTime / 60] min [expr $::tmk::runningTime \% 60] sec."
+    set ::tmk::endTime [clock seconds]
+    set ::tmk::runningTime [expr $::tmk::endTime - $::tmk::startTime]
+    set timeOfDay [clock format $::tmk::endTime -format "%T %Z"]
+    set day [clock format $::tmk::endTime -format "%Y-%m-%d"]
+    set msg "finished in [expr $::tmk::runningTime / 60] minutes, [expr $::tmk::runningTime \% 60] seconds at $timeOfDay on $day"
+    log_msg $msg
+    beep $::GOOD_BEEP
+    say $msg
 }

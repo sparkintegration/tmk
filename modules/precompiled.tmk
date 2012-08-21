@@ -1,0 +1,54 @@
+lappend ::cxx::FLAGS -I[file join $::PROJROOT precompiled include]
+lappend ::c::FLAGS   -I[file join $::PROJROOT precompiled include]
+
+when_target os=osx {
+    set ::precompiled_lib_path [file join $::PROJROOT precompiled osx lib]
+    
+    lappend ::cxx::FLAGS -I[file join $::PROJROOT precompiled osx include]
+    lappend ::c::FLAGS   -I[file join $::PROJROOT precompiled osx include]
+    lappend ::link::LIBPATH $::precompiled_lib_path
+}
+
+when_target os=linux {
+    lappend ::cxx::FLAGS -I[file join $::PROJROOT precompiled linux include]
+    lappend ::c::FLAGS   -I[file join $::PROJROOT precompiled linux include]
+    
+    set include_path [file join $::PROJROOT precompiled linux x86 include]
+    set ::precompiled_lib_path [file join $::PROJROOT precompiled linux x86 lib]
+    
+    when_target arch=x86_64 {
+        set include_path [file join $::PROJROOT precompiled linux x86_64 include]
+        set ::precompiled_lib_path [file join $::PROJROOT precompiled linux x86_64 lib]
+    }
+    when_target arch=redhat_64 {
+        set include_path [file join $::PROJROOT precompiled linux redhat_64 include]
+        set ::precompiled_lib_path [file join $::PROJROOT precompiled linux redhat_64 lib]
+    }
+    when_target arch=android {
+        set include_path [file join $::PROJROOT precompiled linux android include]
+        set ::precompiled_lib_path [file join $::PROJROOT precompiled linux android lib]
+    }
+    
+    lappend ::cxx::FLAGS -I$include_path
+    lappend ::c::FLAGS   -I$include_path
+    lappend ::link::LIBPATH $::precompiled_lib_path
+}
+
+when_target os=mswin {
+    lappend ::cxx::FLAGS -I[file join $::PROJROOT precompiled windows include]
+    lappend ::c::FLAGS   -I[file join $::PROJROOT precompiled windows include]
+    
+    set include_path [file join $::PROJROOT precompiled windows x86 include]
+    set ::precompiled_lib_path [file join $::PROJROOT precompiled windows x86 lib]
+    
+    when_target arch=x86_64 {
+        set include_path [file join $::PROJROOT precompiled windows x86_64 include]
+        set ::precompiled_lib_path [file join $::PROJROOT precompiled windows x86_64 lib]
+    }
+    
+    lappend ::cxx::FLAGS -I$include_path
+    lappend ::c::FLAGS   -I$include_path
+    lappend ::link::LIBPATH $::precompiled_lib_path
+}
+
+set_ifndef ::precompiled_lib_path $::PROJROOT

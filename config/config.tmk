@@ -7,42 +7,42 @@ set ::CONFIG_FAILED 0
 
 # don't print the whole path ...
 proc ::tmk::config_log {msg} {
-	set tmp [backslash_convert $::tmk::configDir]
-	regsub $tmp $msg "<tmk>/config" msg
-	log_msg $msg
+    set tmp [backslash_convert $::tmk::configDir]
+    regsub $tmp $msg "<tmk>/config" msg
+    log_msg $msg
 }
 
 # execute config file
 proc ::tmk::exec_config_file {filePath {mod {}} } {
-	set mod [string tolower $mod]
-	if {$mod != {}} {
-		set mod " (in namespace $mod)"
-	}
-	
-	set dir [file dirname $filePath]
-	set file [string tolower [file tail $filePath]]
-	set f [file join $dir $file]
+    set mod [string tolower $mod]
+    if {$mod != {}} {
+        set mod " (in namespace $mod)"
+    }
+    
+    set dir [file dirname $filePath]
+    set file [string tolower [file tail $filePath]]
+    set f [file join $dir $file]
 
-	if { [file readable $f ] && [file isfile $f] } {
-		::tmk::config_log "*** reading: $f$mod"
-		uplevel 1 source $f
-	} else {
-		::tmk::config_log " (not found: $f)"
-	}
+    if { [file readable $f ] && [file isfile $f] } {
+        ::tmk::config_log "*** reading: $f$mod"
+        uplevel 1 source $f
+    } else {
+        ::tmk::config_log " (not found: $f)"
+    }
 
-	return $::CONFIG_FAILED
+    return $::CONFIG_FAILED
 }
 
 #=========================================================
 # get system type: cpu, vendor and os (global variables)
 #=========================================================
 proc ::tmk::get_system_information {} {
-	# the OS class is determined by Tcl
-	set ::OSCLASS $::tcl_platform(platform)
+    # the OS class is determined by Tcl
+    set ::OSCLASS $::tcl_platform(platform)
 
-	# execute OSCLASS-dependent sysinfo script
-	set file [file join $::tmk::hostConfigDir sysinfo $::OSCLASS.tmk]
-	::tmk::import $file
+    # execute OSCLASS-dependent sysinfo script
+    set file [file join $::tmk::hostConfigDir sysinfo $::OSCLASS.tmk]
+    ::tmk::import $file
 }
 
 # load config management methods
@@ -57,95 +57,94 @@ set ::tmk::cacheDir [config dir]
 
 # only output user info?
 if $::tmk::sysInfoOnly {
-	config read
-	set txt {}
-	read_file [file join $::tmk::dir_src sysinfo.msg] txt
-	set cacheFile [config name]
-	puts stdout [subst -nocommands $txt]
-	exit
+    config read
+    set txt {}
+    read_file [file join $::tmk::srcDir sysinfo.msg] txt
+    puts stdout [subst -nocommands $txt]
+    exit
 }
 
 # read cached config
 if {![config read]} {
 
-	# cache read failed, so parse all config files and create cache 
-	::tmk::config_log "starting configuration"
-	::tmk::config_log "system: $::OS $::OSVER"
-	
-	# =================================================================
-	# process config files in proper order
-	# =================================================================
+    # cache read failed, so parse all config files and create cache 
+    ::tmk::config_log "starting configuration"
+    ::tmk::config_log "system: $::OS $::OSVER"
+    
+    # =================================================================
+    # process config files in proper order
+    # =================================================================
 
-	# host config files
-	::tmk::exec_config_file [file join $::tmk::hostConfigDir default.tmk]
-	::tmk::exec_config_file [file join $::tmk::hostConfigDir ${::OS}.tmk]
-	
-	# read target config files
-	# top level
-	::tmk::exec_config_file [file join $::tmk::targetsConfigDir default.tmk]
+    # host config files
+    ::tmk::exec_config_file [file join $::tmk::hostConfigDir default.tmk]
+    ::tmk::exec_config_file [file join $::tmk::hostConfigDir ${::OS}.tmk]
+    
+    # read target config files
+    # top level
+    ::tmk::exec_config_file [file join $::tmk::targetsConfigDir default.tmk]
 
-	# OS/arch/board specific
-	set olddir [pwd]
-	cd $::tmk::targetsConfigDir
-	set os_files [glob -nocomplain os_*.tmk]
-	set arch_files [glob -nocomplain arch_*.tmk]
-	set board_files [glob -nocomplain board_*.tmk]
-	cd $olddir
-	
-	foreach file $os_files {
-		set os [string range $file 3 [expr [string length $file] - 5]]
-		config when_target os=$os {
-			::tmk::exec_config_file [file join $::tmk::targetsConfigDir $file]
-		}
-	}
-	
-	foreach file $arch_files {
-		set arch [string range $file 5 [expr [string length $file] - 5]]
-		config when_target arch=$arch {
-			::tmk::exec_config_file [file join $::tmk::targetsConfigDir $file]
-		}
-	}
-	
-	foreach file $board_files {
-		set board [string range $file 6 [expr [string length $file] - 5]]
-		config when_target board=$board {
-			::tmk::exec_config_file [file join $::tmk::targetsConfigDir $file]
-		}
-	}
+    # OS/arch/board specific
+    set olddir [pwd]
+    cd $::tmk::targetsConfigDir
+    set os_files [glob -nocomplain os_*.tmk]
+    set arch_files [glob -nocomplain arch_*.tmk]
+    set board_files [glob -nocomplain board_*.tmk]
+    cd $olddir
+    
+    foreach file $os_files {
+        set os [string range $file 3 [expr [string length $file] - 5]]
+        config when_target os=$os {
+            ::tmk::exec_config_file [file join $::tmk::targetsConfigDir $file]
+        }
+    }
+    
+    foreach file $arch_files {
+        set arch [string range $file 5 [expr [string length $file] - 5]]
+        config when_target arch=$arch {
+            ::tmk::exec_config_file [file join $::tmk::targetsConfigDir $file]
+        }
+    }
+    
+    foreach file $board_files {
+        set board [string range $file 6 [expr [string length $file] - 5]]
+        config when_target board=$board {
+            ::tmk::exec_config_file [file join $::tmk::targetsConfigDir $file]
+        }
+    }
 
-	# read compiler config files (in the correct namespace)
-	# look for all compilers in all modules
-	foreach os [config get_oses] { foreach arch [config get_archs $os] { foreach board [config get_boards $os $arch] {
-		set prestrip_compilers [config vars *::COMPILER [config make_ns $os $arch $board]]
+    # read compiler config files (in the correct namespace)
+    # look for all compilers in all modules
+    foreach os [config get_oses] { foreach arch [config get_archs $os] { foreach board [config get_boards $os $arch] {
+        set prestrip_compilers [config vars *::COMPILER [config make_ns $os $arch $board]]
 
-		set __target_os $os
-		set __target_arch $arch
-		set __target_board $board
-		foreach var $prestrip_compilers {
-			set __module [string range [namespace qualifiers [config strip_ns $var]] 2 end]
-			eval foreach __compiler \${$var} {{
-				# the compiler config file is read multiple times in different
-				#namespaces; so you can use $__compiler and $__module 
-				dbg_msg "configuring $__compiler for module $__module, OS: $__target_os, arch: $__target_arch, board: $__target_board"
-				set ns [string tolower "::${__module}::$__compiler"]
-				set file [file join $::tmk::compilersConfigDir $__compiler.tmk] 
-				namespace eval $ns ::tmk::exec_config_file $file $ns
-			}}
-		}
-	}}}
+        set __target_os $os
+        set __target_arch $arch
+        set __target_board $board
+        foreach var $prestrip_compilers {
+            set __module [string range [namespace qualifiers [config strip_ns $var]] 2 end]
+            eval foreach __compiler \${$var} {{
+                # the compiler config file is read multiple times in different
+                #namespaces; so you can use $__compiler and $__module 
+                dbg_msg "configuring $__compiler for module $__module, OS: $__target_os, arch: $__target_arch, board: $__target_board"
+                set ns [string tolower "::${__module}::$__compiler"]
+                set file [file join $::tmk::compilersConfigDir $__compiler.tmk] 
+                namespace eval $ns ::tmk::exec_config_file $file $ns
+            }}
+        }
+    }}}
 
-	# save all settings
-	::tmk::config_log "writing config files"
-	config save
+    # save all settings
+    ::tmk::config_log "writing config files"
+    config save
 
-	# if user specified -reconfig, don't go any further 
-	if $tmk::forceReconfig {
-		log_msg "configuration finished successfully."
-		exit 0
-	} 
-	
-	# if we want to continue, let's now read/activate the cached config
-	if {![config read]} {
-		exit_msg "could not read config"
-	}
+    # if user specified -reconfig, don't go any further 
+    if $tmk::forceReconfig {
+        log_msg "configuration finished successfully."
+        exit 0
+    } 
+    
+    # if we want to continue, let's now read/activate the cached config
+    if {![config read]} {
+        exit_msg "could not read config"
+    }
 }

@@ -1,96 +1,196 @@
-#	Title: pyinstaller Module
+#    Title: pyinstaller Module
 #
 # =========================================================================
 #
-# 		TMK module for supporting pyinstaller packaged python programs
+#         TMK module for supporting pyinstaller packaged python programs
 # ===========================================================================
-# pyinstaller location can be specified (or default to /cross/win32/pyinstaller)
+# pyinstaller location can be specified (or default to /cross/distrix3/win32/pyinstaller)
 # if config file is specified use it
 #   or, look for config file in build directory
-#     or, run Configure.py with specified system32, path, python.exe, or default to /cross/win32/pyinstaller/etc
+#     or, run Configure.py with specified system32, path, python.exe, or default to /cross/distrix3/win32/pyinstaller/etc
 # if spec file is specified use it
 #   or, look for spec file in build directory
 #     or, PYTHONFILE is required and generate spec file with Makespec.py
 # run Build.py on the spec file
 
-when_target os!=mswin { skip }
+require_target {mswin linux}
 
-#	Variable: PYINSTALLER_DIR
-#		Set the location of the pyinstaller tools
-set_ifndef PYINSTALLER_DIR "/cross/win32/pyinstaller"
+when_target os=mswin {
+    set PYTHON_VERSION "2.5"
+    #    Variable: PYINSTALLER_DIR
+    #        Set the location of the pyinstaller tools
+    set_ifndef PYINSTALLER_DIR "/cross/distrix3/mingw64/pyinstaller"
 
-#	Variable: SYSTEM32_DIR
-#		Set the location of the pyinstaller tools
-set_ifndef SYSTEM32_DIR "/cross/win32/pyinstaller/support/system32"
+    #    Variable: SYSTEM32_DIR
+    #        Set the location of the pyinstaller tools
+    set_ifndef SYSTEM32_DIR "/cross/distrix3/mingw64/pyinstaller/windows_support/system32"
+    
+    #    Variable: LIB_DIR
+    #        Set the location of the pyinstaller tools
+    set_ifndef LIB_DIR ""
 
-#	Variable: PYTHON_EXE
-#		Set the location of the pyinstaller tools
-set_ifndef PYTHON_EXE "/cross/win32/pyinstaller/support/Python25/python.exe"
+    #    Variable: PYTHON_EXE
+    #        Set the location of the pyinstaller tools
+    set_ifndef PYTHON_EXE "/cross/distrix3/mingw64/pyinstaller/windows_support/Python25/python.exe"
 
-#	Variable: PYTHON_SYSPATH
-#		Set the location of the pyinstaller tools
-set_ifndef PYTHON_SYSPATH {"/cross/win32/pyinstaller/support/Python25/Lib" 
-							"/cross/win32/pyinstaller/support/Python25/DLLs" 
-							"/cross/win32/pyinstaller/support/Python25/Lib/site-packages"}
+    #    Variable: PYTHON_SYSPATH
+    #        Set the location of the pyinstaller tools
+    set_ifndef PYTHON_SYSPATH {"/cross/distrix3/mingw64/pyinstaller/windows_support/Python25/Lib" 
+                                "/cross/distrix3/mingw64/pyinstaller/windows_support/Python25/DLLs" 
+                                "/cross/distrix3/mingw64/pyinstaller/windows_support/Python25/Lib/site-packages"
+                                "/cross/distrix3/mingw64/pyinstaller/windows_support/Python25/Lib/site-packages/mingw64/lib"}
 
-set_ifndef BUILD_DIR [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
+    set_ifndef SUPPORT_DIR "windows_support"
+    
+    set TARGET_PLATFORM "win32"
+}
 
-set_ifndef SPEC_FILE "Python.spec"
+when_target os=linux {
+    if { [target_matches arch=x86_64] } {
+        set bits "64"
+        set TARGET_PLATFORM "linux2_64"
+        set PYTHON_VERSION "2.5"
+        
+        #    Variable: PYTHON_SYSPATH
+        #        Set the location of the pyinstaller tools
+        set_ifndef PYTHON_SYSPATH {"/cross/distrix3/linux64/pyinstaller/linux64_support/Python25/Lib" 
+                                    "/cross/distrix3/linux64/pyinstaller/linux64_support/Python25/Lib/lib-dynload" 
+                                    "/cross/distrix3/linux64/pyinstaller/linux64_support/Python25/Lib/site-packages"
+                                    "/cross/distrix3/linux64/pyinstaller"}
+        #    Variable: PYINSTALLER_DIR
+        #        Set the location of the pyinstaller tools
+        set_ifndef PYINSTALLER_DIR "/cross/distrix3/linux64/pyinstaller"
+        
+        #    Variable: LIB_DIR
+        #        Set the location of the pyinstaller tools
+        set_ifndef LIB_DIR "/cross/distrix3/linux64/pyinstaller/linux64_support/lib"
+
+        #    Variable: PYTHON_EXE
+        #        Set the location of the pyinstaller tools
+        set_ifndef PYTHON_EXE "/cross/distrix3/linux64/pyinstaller/linux64_support/Python25/python"
+        set_ifndef SUPPORT_DIR "linux64_support"
+    } elseif { [target_matches arch=redhat_64] } {
+        set bits "64"
+        set TARGET_PLATFORM "linux2_redhat_64"
+        set PYTHON_VERSION "2.4"
+        
+        #    Variable: PYTHON_SYSPATH
+        #        Set the location of the pyinstaller tools
+        set_ifndef PYTHON_SYSPATH {    "/cross/distrix3/redhat64/pyinstaller/redhat64_support/Python24/Lib"
+                                    "/cross/distrix3/redhat64/pyinstaller/redhat64_support/Python24/Lib/lib-dynload"
+                                    "/cross/distrix3/redhat64/pyinstaller/redhat64_support/Python24/Lib/site-packages"
+                                    "/cross/distrix3/redhat64/pyinstaller"}
+        #    Variable: PYINSTALLER_DIR
+        #        Set the location of the pyinstaller tools
+        set_ifndef PYINSTALLER_DIR "/cross/distrix3/redhat64/pyinstaller"
+        
+        #    Variable: LIB_DIR
+        #        Set the location of the pyinstaller tools
+        set_ifndef LIB_DIR "/cross/distrix3/redhat64/pyinstaller/redhat64_support/lib"
+
+        #    Variable: PYTHON_EXE
+        #        Set the location of the pyinstaller tools
+        set_ifndef PYTHON_EXE "/cross/distrix3/redhat64/pyinstaller/redhat64_support/Python24/python"
+        set_ifndef SUPPORT_DIR "redhat64_support"
+    } else {
+        set bits ""
+        set TARGET_PLATFORM "linux2"
+        set PYTHON_VERSION "2.5"
+        
+        #    Variable: PYTHON_SYSPATH
+        #        Set the location of the pyinstaller tools
+        set_ifndef PYTHON_SYSPATH {"/cross/distrix3/linux/pyinstaller/linux_support/Python25/Lib" 
+                                    "/cross/distrix3/linux/pyinstaller/linux_support/Python25/Lib/lib-dynload" 
+                                    "/cross/distrix3/linux/pyinstaller/linux_support/Python25/Lib/site-packages"
+                                    "/cross/distrix3/linux/pyinstaller"}
+        #    Variable: PYINSTALLER_DIR
+        #        Set the location of the pyinstaller tools
+        set_ifndef PYINSTALLER_DIR "/cross/distrix3/linux/pyinstaller"
+        
+        #    Variable: LIB_DIR
+        #        Set the location of the pyinstaller tools
+        set_ifndef LIB_DIR "/cross/distrix3/linux/pyinstaller/linux_support/lib"
+
+        #    Variable: PYTHON_EXE
+        #        Set the location of the pyinstaller tools
+        set_ifndef PYTHON_EXE "/cross/distrix3/linux/pyinstaller/linux_support/Python25/python"
+        set_ifndef SUPPORT_DIR "linux_support"
+    }
+
+    #    Variable: SYSTEM32_DIR
+    #        Set the location of the pyinstaller tools
+    set_ifndef SYSTEM32_DIR ""
+}
 
 proc get_config {} {
-	if { [ info exists pyinstaller::CONFIG ] } {
-		return $pyinstaller::CONFIG
-	}
-	set configLocation [file join $pyinstaller::BUILD_DIR "pyinstaller_config.dat"]
-	if { [file isfile $configLocation ] } {
-		return $configLocation
-	}
-	
-	puts "Need to generate pyinstaller config..."
-	# TODO: This should be created the way it normally is probably (with a build_id, etc..)?
-	file mkdir $pyinstaller::BUILD_DIR
-	
-	cmd python $pyinstaller::PYINSTALLER_DIR/Configure.py -C $configLocation --target-platform=win32 \
-		--system32-dir=$pyinstaller::SYSTEM32_DIR --executable=$pyinstaller::PYTHON_EXE \
-		--sys-path=[join $pyinstaller::PYTHON_SYSPATH ","]
-	
-	return $configLocation
+    if { [info exists pyinstaller::CONFIG] } {
+        return $pyinstaller::CONFIG
+    }
+    set configFile "pyinstaller_config.dat"
+    set configPath [file join [tmk_output_dir] $configFile]
+    if { [file isfile $configPath] } {
+        return $configPath
+    }
+    
+    set rule {
+        log_msg "Need to generate pyinstaller config..."
+        cmd python${pyinstaller::PYTHON_VERSION} ${pyinstaller::PYINSTALLER_DIR}/Configure.py -C \$TARGET --target-platform=${pyinstaller::TARGET_PLATFORM} \
+            --system32-dir=${pyinstaller::SYSTEM32_DIR} --lib-dir=${pyinstaller::LIB_DIR} --executable=${pyinstaller::PYTHON_EXE} \
+            --sys-path=[join $pyinstaller::PYTHON_SYSPATH ","] --support-dir=${pyinstaller::SUPPORT_DIR}
+    }
+    target $configFile ALWAYS_BUILD [subst $rule]
+    return $configPath
 }
 
-proc get_spec {configFile} {
-	if { [ info exists pyinstaller::SPEC_FILE ] } {
-		return $pyinstaller::SPEC_FILE
-	}
-	
-	if { ![ info exists pyinstaller::SCRIPTNAME ] } {
-		puts "No spec file (pyinstaller::SPEC_FILE) was specified, so pyinstaller::SCRIPTNAME must be set!!"
-		exit 1
-	}
-	
-	set baseName [lindex [split $pyinstaller::SCRIPTNAME .] 0]
-	set specFileName [file join $pyinstaller::BUILD_DIR "$baseName.spec"]
-	if { [file isfile $specFileName ] } {
-		return $specFileName
-	}
-	
-	puts "Need to generate a spec file..."
-	cmd python $pyinstaller::PYINSTALLER_DIR/Makespec.py -C $configFile -o $pyinstaller::BUILD_DIR -n "$baseName" $pyinstaller::SCRIPTNAME
-	
-	return $specFileName
+proc get_spec { configPath } {
+    if { [info exists pyinstaller::SPEC_FILE] } {
+        return $pyinstaller::SPEC_FILE
+    }
+    if { ![info exists pyinstaller::SCRIPTNAME] } {
+        puts "No spec file (pyinstaller::SPEC_FILE) was specified, so pyinstaller::SCRIPTNAME must be set!"
+        exit 1
+    }
+    
+    set baseName [file rootname $pyinstaller::SCRIPTNAME]
+    set specFile "${baseName}.spec"
+    set specPath [file join [tmk_output_dir] $specFile]
+    if { [file isfile $specPath] } {
+        return $specPath
+    }
+    
+    set rule {
+        log_msg "Need to generate a spec file..."
+        cmd python${pyinstaller::PYTHON_VERSION} ${pyinstaller::PYINSTALLER_DIR}/Makespec.py -C \$SRC -o [tmk_output_dir] \
+            -n "${baseName}" $pyinstaller::SCRIPTNAME
+    }
+    target $specFile $configPath [subst -nocommands $rule]
+    return $specPath
 }
 
-proc build_exe {configFile specFile} {
-	cmd python $pyinstaller::PYINSTALLER_DIR/Build.py -C $configFile $specFile
+proc build_exe { configPath specPath } {
+    set exe [filename_exe [file rootname [file tail $specPath]]]
+    set rule {
+        log_msg "Pyinstaller config file: ${configPath}"
+        log_msg "Pyinstaller spec file: ${specPath}"
+        cmd python${pyinstaller::PYTHON_VERSION} ${pyinstaller::PYINSTALLER_DIR}/Build.py -C $configPath $specPath
+    }
+    target $exe $specPath [subst -nocommands $rule]
+    depend $exe $configPath
+    build $exe
 }
 
-target $pyinstaller::SPEC_FILE ALWAYS_BUILD {
-	if { ![lcontains $::tmk::cmdLineTargets "clean"] } {
-		set configFile [pyinstaller::get_config]
-		puts "Pyinstaller config file: $configFile"
-		set specFile [pyinstaller::get_spec $configFile]
-		puts "Pyinstaller spec file: $specFile"
-		pyinstaller::build_exe $configFile $specFile
-	}
-}
+eval_after {
+    if { ![tmk::cleaning] } {
+        set configPath [pyinstaller::get_config]
+        if { ![info exists pyinstaller::SPEC_FILES] } {
+            namespace eval pyinstaller {}
+            set pyinstaller::SPEC_FILES [list [pyinstaller::get_spec $configPath]]
+        }
 
-build $pyinstaller::SPEC_FILE
+        foreach specPath $pyinstaller::SPEC_FILES {
+            pyinstaller::build_exe $configPath $specPath
+        }
+    }
+    
+    lconcat ::CLEAN_PATTERNS { warn*.txt logdict*.log build }
+}

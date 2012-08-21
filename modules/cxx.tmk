@@ -1,9 +1,11 @@
 # -*-Mode: tcl -*-
 
 if {![info exists COMPILER]} {
-	puts "Note: cannot use C/C++ module since no compiler is configured for this OS/architecture."
-	module link
-	return
+    if { ![tmk::cleaning] } {
+        log_msg "Note: cannot use C/C++ module since no compiler is configured for this OS/architecture."
+    }
+    module link
+    return
 }
 
 # standard codelevel-independent compiler flags 
@@ -12,9 +14,9 @@ regsub -all {\.} $flags {} flags
 eval lappend FLAGS $flags
 
 proc fix_define {name} {
-	regsub -all {[+]} $name "x" name
-	regsub -all {[^a-zA-Z0-9_]} $name "_" name
-	return $name
+    regsub -all {[+]} $name "x" name
+    regsub -all {[^a-zA-Z0-9_]} $name "_" name
+    return $name
 }
 
 set DEFINES(HOST_OS_[fix_define [string toupper $OS]]) 1
@@ -26,37 +28,39 @@ set DEFINES(COMPILER_[fix_define [string toupper $COMPILER]]) 1
 # by default, the language module also implements the linker
 set_ifndef ::link::LINKER ::cxx::$COMPILER
 
-#	Variable: DETECT_OBJ
-#		Automatic detection of source files
+#    Variable: DETECT_OBJ
+#        Automatic detection of source files
 set_ifndef DETECT_OBJ 1
 
-#	Variable: USE_CPP_MAIN_DETECTION
-#		Set to 1 if you need to use the preprocessor to correctly identify files with main() functions.
+#    Variable: USE_CPP_MAIN_DETECTION
+#        Set to 1 if you need to use the preprocessor to correctly identify files with main() functions.
 set_ifndef USE_CPP_MAIN_DETECTION 0
 
-#	Variable: DETECT_EXE
-#		Automatic detection of executables (scans file for main() function)
+#    Variable: DETECT_EXE
+#        Automatic detection of executables (scans file for main() function)
 set_ifndef DETECT_EXE 1
 
-#	Variable: ADD_TO_LIB
-#		Should the auto-detected files be added to the local library?
+#    Variable: ADD_TO_LIB
+#        Should the auto-detected files be added to the local library?
 set_ifndef ADD_TO_LIB 1
 
-#	Variable: OPTIONS
-#		Default meta compiler options for compiling object files
+#    Variable: OPTIONS
+#        Default meta compiler options for compiling object files
 set_ifndef OPTIONS {}
 
-#	Variable: MAKEDEPEND
-#		'makedepend' program for compiler-independent dependency checking
-set_ifndef MAKEDEPEND [exec which makedepend]
-
-#	Variable: PATTERNS
-#		File suffixes that mark C++ code files
+#    Variable: PATTERNS
+#        File suffixes that mark C++ code files
 set_ifndef PATTERNS {*.C *.c++ *.cpp *.cxx *.cc}
 
-#	Variable: PROJINCS
-#		Additional include directories
+#    Variable: PROJINCS
+#        Additional project-relative include directories
 set_ifndef PROJINCS {}
+
+#    Variable: INCPATH
+#        Additional include directories
+set_ifndef INCPATH {}
+
+set_ifndef EXECUTABLES {}
 
 # this needs the link module 
 module link
@@ -68,52 +72,59 @@ if {[string trim $COMPILER] == {}} {
 }
 
 if {![array exists KEYED_FLAGS]} {
-	array set KEYED_FLAGS {}
+    array set KEYED_FLAGS {}
 }
 
 # default value for compiler-specific FLAGS / LDFLAGS 
 dbg_msg "cxx compiler: $COMPILER"
 
 foreach name [list ::cxx::${COMPILER}::FLAGS ::cxx::${COMPILER}::LDFLAGS] {
-	set cl [string toupper $CODELEVEL]
-	ifdef $name {} {
-    	ifdef ${name}_$cl {
-			eval set $name \$${name}_${cl}
-    	} {
-			log_msg "warning: variable ${name}_$cl not defined"
-			set_ifndef $name {}
-    	}
-	}
+    set cl [string toupper $CODELEVEL]
+    ifdef $name {} {
+        ifdef ${name}_$cl {
+            eval set $name \$${name}_${cl}
+        } {
+            log_msg "warning: variable ${name}_$cl not defined"
+            set_ifndef $name {}
+        }
+    }
 }
 
-# return the actual choosen compiler 
+# return the actual chosen compiler
 proc get_compiler {} {
     return ${::cxx::COMPILER}
 }
 
 # auto-detect which source file will become executables
 proc is_executable {src} {
-	
-	set txt ""
-	
-	if {$::cxx::USE_CPP_MAIN_DETECTION} {
-		set location [targetname_long $src.pp]
-		::tmk::create_dir_recursively [file dirname $location]
-		if {[catch {::cxx::[::cxx::get_compiler]::preprocess $location $src [::cxx::default_flags] $::cxx::OPTIONS} result]} {
-			exit_msg "Could not identify main() functions, since USE_CPP_MAIN_DETECTION is not 0, and the preprocessor failed: $result"
-		}
-		read_file $location txt
-	} else {
-		read_file $src txt
-	    # eat c++-style comments
-		regsub -all {\/\/.*?\n} $txt "" txt
-	
-		#eat c-style comments
-		regsub -all {\/\*.*?\*\/} $txt "" txt
-	}
-	
-	set exp {^(?!.*(\/\/))\s*int\s+main\s*\(.*\)}
-    return [regexp -line -- $exp $txt]
+    
+    if {[lsearch $::cxx::EXECUTABLES $src] != -1} {
+        return 1
+    }
+    
+    if {$::cxx::DETECT_EXE} {
+        set txt ""
+        if {$::cxx::USE_CPP_MAIN_DETECTION} {
+            set location [targetname_long $src.pp]
+            ::tmk::create_dir_recursively [file dirname $location]
+            if {[catch {::cxx::[::cxx::get_compiler]::preprocess $location $src [::cxx::default_flags] $::cxx::OPTIONS} result]} {
+                exit_msg "Could not identify main() functions, since USE_CPP_MAIN_DETECTION is not 0, and the preprocessor failed: $result"
+            }
+            read_file $location txt
+        } else {
+            read_file $src txt
+            # eat c++-style comments
+            regsub -all {\/\/.*?\n} $txt "" txt
+    
+            #eat c-style comments
+            regsub -all {\/\*.*?\*\/} $txt "" txt
+        }
+    
+        set exp {^(?!.*(\/\/))\s*int\s+main\s*\(.*\)}
+        return [regexp -line -- $exp $txt]
+    }
+    
+    return 0
 }
 
 # compile source file into an object file and handle dependencies
@@ -125,122 +136,127 @@ proc make_obj {src {obj {}} {flags_expr undef} {opt_expr undef} } {
     if {$flags_expr == "undef"} {set flags_expr {[::cxx::default_flags]}}
     if {$opt_expr == "undef"}   {set opt_expr   {$::cxx::OPTIONS}}
 
-    # target\: make obj from src
-    set depname {[filename_dep $ROOT]}
-    set rule {
-		set dep $depname
-		set empty {}
-		write_file \$dep empty
-
-		set mk_dep [eval expr \\\$\{::cxx::[::cxx::get_compiler]::EXPLICIT_MAKEDEPEND\}]
-		set opt      $opt_expr
-
-		if {$::link::MAKE_SHLIB} {
-			lappend opt "shared"
-		}
-	
-		if {[catch {::cxx::[::cxx::get_compiler]::compile_obj \
-			\$TARGET \$SRC \$dep $flags_expr \$opt} result]} {
-				file delete -force -- \$TARGET
-				file delete -force -- \$dep
-				return -code error "\${result}."
-			}
-
-		if { \$mk_dep } {
-		    write_file \$dep empty
-		    ::cxx::makedepend \
-			    [file nativename \$TARGET] \
-			    [file nativename \$SRC] \
-			    [file nativename \$dep] $flags_expr
-		}
-		
-		::cxx::fix_dependencies \$dep
+    set target $obj
+    set ttime 0
+    if {!$::POSTBUILD || ![::tmk::does_target_exist target ttime]} {
+        # target\: make obj from src
+        set depname {[filename_dep $ROOT]}
+        set rule {
+            set dep $depname
+            set empty {}
+            write_file \$dep empty
+    
+            set mk_dep [eval expr \\\$\{::cxx::[::cxx::get_compiler]::EXPLICIT_MAKEDEPEND\}]
+            set opt      $opt_expr
+    
+            if {$::link::MAKE_SHLIB} {
+                lappend opt "shared"
+            }
+        
+            if {[catch {::cxx::[::cxx::get_compiler]::compile_obj \
+                \$TARGET \$SRC \$dep $flags_expr \$opt} result]} {
+                    file delete -force -- \$TARGET
+                    file delete -force -- \$dep
+                    return -code error "\${result}."
+                }
+    
+            if { \$mk_dep } {
+                write_file \$dep empty
+                ::cxx::makedepend \
+                    [file nativename \$TARGET] \
+                    [file nativename \$SRC] \
+                    [file nativename \$dep] $flags_expr
+            }
+            
+            ::cxx::fix_dependencies \$dep
+        }
+    
+        target $obj $src [subst -nocommands $rule]
+    
+    
+        # secondary dependencies: evaluate only if target is examined
+        depend $obj "\[read_dependencies \$TARGET $depname\]"
+    
+        # add target for 'tmk depend'
+        set rule {
+            set depname [filename_dep [file rootname \$ROOT]]
+            set empty {}
+            write_file \$depname empty
+            ::cxx::[::cxx::get_compiler]::update_dependencies \
+                [file nativename \$ROOT] \
+                [file nativename \$SRC] \
+                [file nativename \$depname] $flags_expr $opt_expr
+            ::cxx::fix_dependencies \$depname
+        }
+        target $obj.depend $src [subst -nocommands $rule]
+        depend depend $obj.depend
     }
-
-    target $obj $src [subst -nocommands $rule]
-
-
-    # secondary dependencies: evaluate only if target is examined
-    depend $obj "\[read_dependencies \$TARGET $depname\]"
-
-    # add target for 'tmk depend'
-    set rule {
-		set depname [filename_dep [file rootname \$ROOT]]
-		set empty {}
-		write_file \$depname empty
-		::cxx::[::cxx::get_compiler]::update_dependencies \
-			[file nativename \$ROOT] \
-			[file nativename \$SRC] \
-			[file nativename \$depname] $flags_expr $opt_expr
-		::cxx::fix_dependencies \$depname
-    }
-    target $obj.depend $src [subst -nocommands $rule]
-    depend depend $obj.depend
 
     # is it a source for an executable?
     set is_exec 0
-    if {$::cxx::DETECT_EXE} {
-		if [::cxx::is_executable $src] {
-	    	set is_exec 1
-		}
+    if {!$::PREBUILD && [::cxx::is_executable $src]} {
+            set is_exec 1
     }
-    
-    if $is_exec {
-		lappend ::link::PROGRAMS [file rootname $obj]
-		dbg_msg "auto-detected program [file rootname $obj]"
+
+    if {$::PREBUILD} {
+        prebuild $obj
+    } elseif $is_exec {
+        lappend ::link::PROGRAMS [file rootname $obj]
+        dbg_msg "auto-detected program [file rootname $obj]"
+    } elseif $::cxx::ADD_TO_LIB {
+        lappend ::link::LIB_OBJ $obj
     } else {
-		if $::cxx::ADD_TO_LIB {
-	    	lappend ::link::LIB_OBJ $obj
-		} else {
-	    	build $obj
-		}
+        build $obj
     }
 
     return $obj
 }
 
 proc fix_dependencies {name} {
-	if {[info exists ::FIX_DEPENDENCIES] && $::FIX_DEPENDENCIES == 1} {
-		dbg_msg "Fixing dependency file $name"
-		set dest [open $name.temp w]
-		set src [open $name]
-		while {-1 != [gets $src line]} {
-			regsub -all {\\(.)} $line {/\1} line
-			regsub -all {(\a|\s)/usr/lib} $line { c:/cygwin/lib} line
-			regsub -all {(\a|\s)/usr/} $line { c:/cygwin/usr/} line
+    if {[info exists ::FIX_DEPENDENCIES] && $::FIX_DEPENDENCIES == 1} {
+        dbg_msg "Fixing dependency file $name"
+        set dest [open $name.temp w]
+        set src [open $name]
+        while {-1 != [gets $src line]} {
+            regsub -all {\\(.)} $line {/\1} line
+            regsub -all {(\a|\s)/usr/lib} $line { c:/cygwin/lib} line
+            regsub -all {(\a|\s)/usr/} $line { c:/cygwin/usr/} line
 
-			puts $dest $line
-		}
+            puts $dest $line
+        }
 
-		close $src
-		close $dest
+        close $src
+        close $dest
 
-		catch {file delete -force -- $name}
-		catch {file rename -force -- $name.temp $name}
-	}
+        catch {file delete -force -- $name}
+        catch {file rename -force -- $name.temp $name}
+    }
 }
 
 # return complete list of C++ compiler flags (compiler-specific and general)
 proc default_flags {} {
     global ::cxx::FLAGS 
     eval upvar \\\#0 ::cxx::[::cxx::get_compiler]::FLAGS compflags
-	set result [concat $::cxx::FLAGS $compflags]
-	foreach {key value} [array get ::cxx::DEFINES] {
-		lappend result "-D$key=$value"
-	}
-	foreach {key value} [array get ::cxx::KEYED_FLAGS] {
-		lappend result $value
-	}
-	foreach dir $::cxx::PROJINCS {
-		foreach root [concat $::PROJROOT $::PROJ_LOCATIONS] {
-			set path [file nativename [file join $root $dir]]
-			if { [file isdirectory $path] } {
-				lappend result -I${path}
-			} else {
-				exit_msg "!!! Invalid PROJINC: ${path} !!!"
-			}
-		}
-	}
+    set result [concat $::cxx::FLAGS $compflags]
+    foreach {key value} [array get ::cxx::DEFINES] {
+        lappend result "-D$key=$value"
+    }
+    foreach {key value} [array get ::cxx::KEYED_FLAGS] {
+        lappend result $value
+    }
+    foreach dir $::cxx::PROJINCS {
+        foreach root [concat $::PROJROOT $::PROJ_LOCATIONS] {
+            set path [file nativename [file join $root $dir]]
+            if { [file isdirectory $path] } {
+                lappend result -I${path}
+            } else {
+                exit_msg "!!! Invalid PROJINC: ${path} !!!"
+            }
+        }
+    }
+    foreach dir $::cxx::INCPATH {
+        lappend result -I${dir}
+    }
     return $result
 }
 
@@ -255,25 +271,25 @@ proc makedepend {obj src dep flags_expr} {
     set dir2   [file dirname $src]
     # check 1: object/src file names
     if {"[file tail $obj]" != "[file rootname [file tail $src]]$suffix"} {
-	log_msg "sorry, makedepend needs similar object and source file names"
-	exit_msg "  (here: obj = $obj, src = $src)"
+    log_msg "sorry, makedepend needs similar object and source file names"
+    exit_msg "  (here: obj = $obj, src = $src)"
     }
     # check 2: obj dir must be 'prefix' to src dir
     set prefix {}
     if {$dir1 != $dir2} {
-	if {$dir2 != "."} {
-	    set p [string first $dir2 $dir1]
-	    if {$p == -1} {
-		log_msg "sorry, for makedepend the object file directory must"
-		log_msg "  be a prefix to the source file directory"
-		exit_msg "  (here: obj = $obj, src = $src)"
-	    } else {
-		set prefix "-p[file nativename [string range $dir1 0 \
-			[expr $p - 1]]/]"
-	    }
-	} else {
-	    set prefix "-p[file nativename $dir1/]"
-	}
+    if {$dir2 != "."} {
+        set p [string first $dir2 $dir1]
+        if {$p == -1} {
+        log_msg "sorry, for makedepend the object file directory must"
+        log_msg "  be a prefix to the source file directory"
+        exit_msg "  (here: obj = $obj, src = $src)"
+        } else {
+        set prefix "-p[file nativename [string range $dir1 0 \
+            [expr $p - 1]]/]"
+        }
+    } else {
+        set prefix "-p[file nativename $dir1/]"
+    }
     }
 
     eval set _mkdep \$::cxx::${::cxx::COMPILER}::MAKEDEPEND
@@ -285,39 +301,39 @@ proc makedepend {obj src dep flags_expr} {
 }
 
 eval_after {
-	# call compiler's init function (if existant and not already called)
-	if {[info commands ::cxx::${cxx::COMPILER}::init] != {}} {
-		if {[info vars ::cxx::${cxx::COMPILER}::IS_INITIALIZED] == {}} {
-			::cxx::${cxx::COMPILER}::init
-			variable ::cxx::${cxx::COMPILER}::IS_INITIALIZED "1"
-		}
-	}
+    # call compiler's init function (if existant and not already called)
+    if {[info commands ::cxx::${cxx::COMPILER}::init] != {}} {
+        if {[info vars ::cxx::${cxx::COMPILER}::IS_INITIALIZED] == {}} {
+            ::cxx::${cxx::COMPILER}::init
+            variable ::cxx::${cxx::COMPILER}::IS_INITIALIZED "1"
+        }
+    }
 
-	# add all possible project root directories as standard include paths
-	foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
-		lappend FLAGS -I[file nativename $dir]
-	}
+    # add all possible project root directories as standard include paths
+    foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+        lappend FLAGS -I[file nativename $dir]
+    }
 
-	# auto-detect C++ source files by file patterns?
-	if $DETECT_OBJ {
-		set obj_names ""
-		set src_names ""
-		foreach pat $PATTERNS {
-			foreach src [glob -nocomplain $pat] {
-				# re-check for case sensitive handling
-				# Win2k is case-preserving but not case-sensitive
-				if { [file extension $src] == [file extension $pat] } {
-					make_obj $src
-					lappend obj_names [filename_obj [file rootname $src]]
-					lappend src_names $src
-				}
-			}
-		}
-	}
-	
-	eval_after {
-		foreach attr [array names ::ATTRS] {
-			set ::cxx::DEFINES(ATTR_[::cxx::fix_define [string toupper $attr]]) $::ATTRS($attr)
-		}
-	}
+    # auto-detect C++ source files by file patterns?
+    if $DETECT_OBJ {
+        set obj_names ""
+        set src_names ""
+        foreach pat $PATTERNS {
+            foreach src [glob -nocomplain $pat] {
+                # re-check for case sensitive handling
+                # Win2k is case-preserving but not case-sensitive
+                if { [file extension $src] == [file extension $pat] } {
+                    make_obj $src
+                    lappend obj_names [filename_obj [file rootname $src]]
+                    lappend src_names $src
+                }
+            }
+        }
+    }
+    
+    eval_after {
+        foreach attr [array names ::ATTRS] {
+            set ::cxx::DEFINES(ATTR_[::cxx::fix_define [string toupper $attr]]) $::ATTRS($attr)
+        }
+    }
 }

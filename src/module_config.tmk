@@ -4,448 +4,439 @@ set ::tmk::currentConfigBoard __NO_BOARD__
 
 # config cache command dispatcher
 proc ::config {cmd args} {
-	set procname ::tmk::config_$cmd
-	if {[llength [info commands $procname]] == 0} {
-		exit_msg "unknown config cache command: $cmd"
-	}
-	return [uplevel 1 $procname $args]
+    set procname ::tmk::config_$cmd
+    if {[llength [info commands $procname]] == 0} {
+        exit_msg "unknown config cache command: $cmd"
+    }
+    return [uplevel 1 $procname $args]
 }
 
 # directory in which cache files are stored
 proc ::tmk::config_dir {} {
-	return [file join ${::tmk::privateDir} cache]
-}	
+    return [file join ${::tmk::privateDir} cache]
+}    
 
 proc ::tmk::config_filename {os arch board} {
-	set os [string map {! not_} $os]
-	set arch [string map {! not_} $arch]
-	set board [string map {! not_} $board]
-	if {$os != "__NO_OS__"} {
-		if {$arch != "__NO_ARCH__"} {
-			if {$board != "__NO_BOARD__"} {
-				return [file join [config dir] os_${os} arch_${arch} board_${board}.tmk]
-			} else {
-				return [file join [config dir] os_${os} arch_${arch} default.tmk]
-			}
-		} elseif {$board != "__NO_BOARD__"} {
-			return [file join [config dir] os_${os} board_${board}.tmk]
-		} else {
-			return [file join [config dir] os_${os} default.tmk]
-		}
-	} elseif {$arch != "__NO_ARCH__"} {
-		if {$board != "__NO_BOARD__"} {
-			return [file join [config dir] arch_${arch} board_${board}.tmk]
-		} else {
-			return [file join [config dir] arch_${arch} default.tmk]
-		}
-	} elseif {$board != "__NO_BOARD__"} {
-		return [file join [config dir] board_${board}.tmk]
-	} else {
-		return [file join [config dir] default.tmk]
-	}
+    set os [string map {! not_} $os]
+    set arch [string map {! not_} $arch]
+    set board [string map {! not_} $board]
+    if {$os != "__NO_OS__"} {
+        if {$arch != "__NO_ARCH__"} {
+            if {$board != "__NO_BOARD__"} {
+                return [file join [config dir] os_${os} arch_${arch} board_${board}.tmk]
+            } else {
+                return [file join [config dir] os_${os} arch_${arch} default.tmk]
+            }
+        } elseif {$board != "__NO_BOARD__"} {
+            return [file join [config dir] os_${os} board_${board}.tmk]
+        } else {
+            return [file join [config dir] os_${os} default.tmk]
+        }
+    } elseif {$arch != "__NO_ARCH__"} {
+        if {$board != "__NO_BOARD__"} {
+            return [file join [config dir] arch_${arch} board_${board}.tmk]
+        } else {
+            return [file join [config dir] arch_${arch} default.tmk]
+        }
+    } elseif {$board != "__NO_BOARD__"} {
+        return [file join [config dir] board_${board}.tmk]
+    } else {
+        return [file join [config dir] default.tmk]
+    }
 }
 
 proc ::tmk::config_get_target_configs {targetOs targetArch targetBoard} {
-	set result {}
-	
-	# get matching OS directories
-	set osdirs [config dir]
-	foreach dir [glob -nocomplain -type d -directory [config dir] os_*] {
-		set name [file tail $dir]
-		if {$name == "os_${targetOs}" || [string range $name 0 6] == "os_not_" && $name != "os_not_${targetOs}"} {
-			lappend osdirs $dir
-		}
-	}
-	
-	# get matching arch directories
-	set archdirs {}
-	foreach osdir $osdirs {
-		foreach dir [glob -nocomplain -type d -directory $osdir arch_*] {
-			set name [file tail $dir]
-			if {$name == "arch_${targetArch}" || [string range $name 0 8] == "arch_not_" && $name != "arch_not_${targetArch}"} {
-				lappend archdirs $dir
-			}
-		}
-	}
-	
-	# add matching board configs and arch/os defaults
-	foreach dir [concat $osdirs $archdirs] {
-		lappend result [file join $dir default.tmk]
-		foreach boardfile [glob -nocomplain -type f -directory $dir board_*.tmk] {
-			set name [file tail $boardfile]
-			if {$name == "board_${targetBoard}.tmk" || [string range $name 0 9] == "board_not_" && $name != "board_not_${targetBoard}.tmk"} {
-				lappend result $boardfile
-			}
-		}
-	}
-	
-	return $result
+    set result {}
+    
+    # get matching OS directories
+    set osdirs [config dir]
+    foreach dir [glob -nocomplain -type d -directory [config dir] os_*] {
+        set name [file tail $dir]
+        if {$name == "os_${targetOs}" || [string range $name 0 6] == "os_not_" && $name != "os_not_${targetOs}"} {
+            lappend osdirs $dir
+        }
+    }
+    
+    # get matching arch directories
+    set archdirs {}
+    foreach osdir $osdirs {
+        foreach dir [glob -nocomplain -type d -directory $osdir arch_*] {
+            set name [file tail $dir]
+            if {$name == "arch_${targetArch}" || [string range $name 0 8] == "arch_not_" && $name != "arch_not_${targetArch}"} {
+                lappend archdirs $dir
+            }
+        }
+    }
+    
+    # add matching board configs and arch/os defaults
+    foreach dir [concat $osdirs $archdirs] {
+        lappend result [file join $dir default.tmk]
+        foreach boardfile [glob -nocomplain -type f -directory $dir board_*.tmk] {
+            set name [file tail $boardfile]
+            if {$name == "board_${targetBoard}.tmk" || [string range $name 0 9] == "board_not_" && $name != "board_not_${targetBoard}.tmk"} {
+                lappend result $boardfile
+            }
+        }
+    }
+    
+    return $result
 }
 
 # get the modification time of the cache file/registry stuff
 # we just use the mtime of the os/arch independent config file
 proc ::tmk::config_mtime {} {
-	set cachetime 0
-	catch { set cachetime [file mtime [config filename __NO_OS__ __NO_ARCH__ __NO_BOARD__]] }
-	return $cachetime
+    set cachetime 0
+    catch { set cachetime [file mtime [config filename __NO_OS__ __NO_ARCH__ __NO_BOARD__]] }
+    return $cachetime
 }
 
 # do we have an existing cache file?
 # we assume that if any config file exists, they all do
 proc ::tmk::config_exists {} {
-	return [file exists [config filename __NO_OS__ __NO_ARCH__ __NO_BOARD__]]
+    return [file exists [config filename __NO_OS__ __NO_ARCH__ __NO_BOARD__]]
 }
 
 # read config cache, or return 0 if not existant / outdated
 # this is done by comparing the cache file with a global
 #   file ${::tmk::configDir}/rebuildCache
 proc ::tmk::config_read {} {
-	# rebuild ?
-	if $::tmk::forceReconfig {
-		dbg_msg "deleting config due to forced reconfigure"
-		config delete
-		return 0
-	}
+    # rebuild ?
+    if $::tmk::forceReconfig {
+        dbg_msg "deleting config due to forced reconfigure"
+        config delete
+        return 0
+    }
 
-	# config cache file?
-	if [config exists] {
-		# if "rebuildCache" is newer, the cache is considered outdated
-		set configRebuildFile [file join ${::tmk::configDir} rebuild_cache]
-		if [file exists $configRebuildFile] {
-			if [expr [file mtime $configRebuildFile] > [config mtime]] {
-				dbg_msg "Deleting due to stale config"
-				config delete
-				return 0
-			}
-		}
-	} else {
-		return 0
-	}
+    # config cache file?
+    if {![config exists]} {
+        log_msg "Config file does not exist"
+        return 0
+    }
 
-	# read and evaluate contents of each file in global namespace and eval level
-	foreach configFile [config get_target_configs $::TARGET_OS $::TARGET_ARCH $::TARGET_BOARD] {
-		if {[file exists $configFile]} {
-			dbg_msg "reading config file $configFile"
-			namespace eval :: ::tmk::import $configFile
-		}
-	}
+    # read and evaluate contents of each file in global namespace and eval level
+    foreach configFile [config get_target_configs $::TARGET_OS $::TARGET_ARCH $::TARGET_BOARD] {
+        if {[file exists $configFile]} {
+            dbg_msg "reading config file $configFile"
+            namespace eval :: ::tmk::import $configFile
+        }
+    }
 
-	return 1
+    return 1
 }
 
 proc ::tmk::set_config_target {clauses} {
-	foreach clause $clauses {
-		set clause [string trim $clause]
-		
-		if {![regexp "^(os|arch|board)(!)?=(.+)" $clause -> type negate name]} {
-			return 0
-		}
-		
-		if {$negate != ""} {
-			set name "!$name"
-		}
-		
-		switch $type {
-			"os" {
-				set ::tmk::currentConfigOs $name
-			}
-			"arch" {
-				set ::tmk::currentConfigArch $name
-			}
-			"board" {
-				set ::tmk::currentConfigBoard $name
-			}
-			default {
-				return 0
-			}
-		}
-	}
-	
-	return 1
+    foreach clause $clauses {
+        set clause [string trim $clause]
+        
+        if {![regexp "^(os|arch|board)(!)?=(.+)" $clause -> type negate name]} {
+            return 0
+        }
+        
+        if {$negate != ""} {
+            set name "!$name"
+        }
+        
+        switch $type {
+            "os" {
+                set ::tmk::currentConfigOs $name
+            }
+            "arch" {
+                set ::tmk::currentConfigArch $name
+            }
+            "board" {
+                set ::tmk::currentConfigBoard $name
+            }
+            default {
+                return 0
+            }
+        }
+    }
+    
+    return 1
 }
 
 proc ::tmk::config_when_target {reqs cmds} {
-	set prevOs $::tmk::currentConfigOs
-	set prevArch $::tmk::currentConfigArch
-	set prevBoard $::tmk::currentConfigBoard
-	
-	foreach req $reqs {
-		set ::tmk::currentConfigBoard $prevBoard
-		set ::tmk::currentConfigArch $prevArch
-		set ::tmk::currentConfigOs $prevOs
-		
-		if {![::tmk::set_config_target $req]} {
-			log_msg "Invalid config when_target req: '$req'"
-			continue
-		}
+    set prevOs $::tmk::currentConfigOs
+    set prevArch $::tmk::currentConfigArch
+    set prevBoard $::tmk::currentConfigBoard
+    
+    foreach req $reqs {
+        set ::tmk::currentConfigBoard $prevBoard
+        set ::tmk::currentConfigArch $prevArch
+        set ::tmk::currentConfigOs $prevOs
+        
+        if {![::tmk::set_config_target $req]} {
+            log_msg "Invalid config when_target req: '$req'"
+            continue
+        }
 
-		uplevel 1 $cmds
-	}
-	
-	set ::tmk::currentConfigBoard $prevBoard
-	set ::tmk::currentConfigArch $prevArch
-	set ::tmk::currentConfigOs $prevOs
+        uplevel 1 $cmds
+    }
+    
+    set ::tmk::currentConfigBoard $prevBoard
+    set ::tmk::currentConfigArch $prevArch
+    set ::tmk::currentConfigOs $prevOs
 }
 
 proc ::tmk::config_make_ns {os arch board} {
-	set ns "::tmk::__config_os=${os}::__config_arch=${arch}::__config_board=${board}"
-	return $ns
+    set ns "::tmk::__config_os=${os}::__config_arch=${arch}::__config_board=${board}"
+    return $ns
 }
 
 proc ::tmk::config_strip_ns {name} {
-	if {[string range $name 0 1] == "::"} {
-		set name [string range $name 2 end]
-	}
-	
-	if {[string range $name 0 4] == "tmk::"} {
-		set name [string range $name 5 end]
-	}
-	
-	set RE {__config_os=.*?::__config_arch=.*?::__config_board=.*?::}
-	regsub $RE $name "" result
-	return "::$result"
+    if {[string range $name 0 1] == "::"} {
+        set name [string range $name 2 end]
+    }
+    
+    if {[string range $name 0 4] == "tmk::"} {
+        set name [string range $name 5 end]
+    }
+    
+    set RE {__config_os=.*?::__config_arch=.*?::__config_board=.*?::}
+    regsub $RE $name "" result
+    return "::$result"
 }
 
 proc ::tmk::config_extract_namespace {name} {
-	global ::tmk::currentConfigOs
-	global ::tmk::currentConfigArch
-	
-	set ns "::tmk::__config_os=${::tmk::currentConfigOs}::__config_arch=${::tmk::currentConfigArch}::__config_board=${::tmk::currentConfigBoard}"
-	set name_ns [namespace qualifiers $name]
-	
-	if {[string range $name 0 1] == "::"} {
-		# absolute namespace
-		append ns $name_ns
-	} else {
-		# relative to current namespace
-		set current_ns [uplevel 1 namespace current]
-		if {$current_ns != "::"} {set current_ns "${current_ns}::"}
-		append current_ns $name_ns
-		if {$current_ns != "::"} {
-			append ns $current_ns
-		}
-	}
-	
-	return $ns
+    global ::tmk::currentConfigOs
+    global ::tmk::currentConfigArch
+    
+    set ns "::tmk::__config_os=${::tmk::currentConfigOs}::__config_arch=${::tmk::currentConfigArch}::__config_board=${::tmk::currentConfigBoard}"
+    set name_ns [namespace qualifiers $name]
+    
+    if {[string range $name 0 1] == "::"} {
+        # absolute namespace
+        append ns $name_ns
+    } else {
+        # relative to current namespace
+        set current_ns [uplevel 1 namespace current]
+        if {$current_ns != "::"} {set current_ns "${current_ns}::"}
+        append current_ns $name_ns
+        if {$current_ns != "::"} {
+            append ns $current_ns
+        }
+    }
+    
+    return $ns
 }
 
 proc ::tmk::config_real_namespace {name} {
-	set ns [namespace qualifiers $name]
-	
-	if {$ns == {}} {
-		if {[string range $name 0 1] == "::"} {
-			set ns "::"
-		} else {
-			set ns [uplevel 1 namespace current]
-		}
-	}
-	
-	return $ns
+    set ns [namespace qualifiers $name]
+    
+    if {$ns == {}} {
+        if {[string range $name 0 1] == "::"} {
+            set ns "::"
+        } else {
+            set ns [uplevel 1 namespace current]
+        }
+    }
+    
+    return $ns
 }
 
 # register and define a variable
 proc ::tmk::config_set {name value} {
-	set ns [uplevel 1 [list ::tmk::config_extract_namespace $name]]
-	set real_ns [uplevel 1 [list ::tmk::config_real_namespace $name]]
-	set var [namespace tail $name]
-	
-	# array variable? special treatment!
-	if {[string first "(" $var] != -1} {
-		if {![regexp {(.*)\((.*)\)} $var dummy var elem]} {
-			exit_msg "variable name syntax error: $name"
-		}
-		dbg_msg "caching var ($ns,${var}(${elem}))"
-	} else {
-		set elem {}
-		dbg_msg "caching var ($ns,$var)"
-	}
+    set ns [uplevel 1 [list ::tmk::config_extract_namespace $name]]
+    set real_ns [uplevel 1 [list ::tmk::config_real_namespace $name]]
+    set var [namespace tail $name]
+    
+    # array variable? special treatment!
+    if {[string first "(" $var] != -1} {
+        if {![regexp {(.*)\((.*)\)} $var dummy var elem]} {
+            exit_msg "variable name syntax error: $name"
+        }
+        dbg_msg "caching var ($ns,${var}(${elem}))"
+    } else {
+        set elem {}
+        dbg_msg "caching var ($ns,$var)"
+    }
 
-	# if it doesn't exist yet, create __CACHED_VARS in that namespace
-	if {[uplevel 1 info vars ${ns}::__CACHED_VARS] == {}} {
-		uplevel 1 [list namespace eval $ns [list variable __CACHED_VARS {}]]
-	}
-	# don't register variable twice
-	if {![uplevel 1 lcontains \$\{${ns}::__CACHED_VARS\} $var]} {
-		uplevel 1 [list namespace eval $ns [list lappend __CACHED_VARS $var]]
-	}
-	# actually set the value
-	if {$elem == {}} {
-		uplevel 1 [list namespace eval $ns [list variable $var $value]]
-		uplevel 1 [list namespace eval $real_ns [list variable $var $value]]
-	} else {
-		uplevel 1 [list namespace eval $ns [list variable $var]]
-		uplevel 1 [list namespace eval $ns [list set ${var}(${elem}) $value]]
-		uplevel 1 [list namespace eval $real_ns [list variable $var]]
-		uplevel 1 [list namespace eval $real_ns [list set ${var}(${elem}) $value]]
-	}
+    # if it doesn't exist yet, create __CACHED_VARS in that namespace
+    if {[uplevel 1 info vars ${ns}::__CACHED_VARS] == {}} {
+        uplevel 1 [list namespace eval $ns [list variable __CACHED_VARS {}]]
+    }
+    # don't register variable twice
+    if {![uplevel 1 lcontains \$\{${ns}::__CACHED_VARS\} $var]} {
+        uplevel 1 [list namespace eval $ns [list lappend __CACHED_VARS $var]]
+    }
+    # actually set the value
+    if {$elem == {}} {
+        uplevel 1 [list namespace eval $ns [list variable $var $value]]
+        uplevel 1 [list namespace eval $real_ns [list variable $var $value]]
+    } else {
+        uplevel 1 [list namespace eval $ns [list variable $var]]
+        uplevel 1 [list namespace eval $ns [list set ${var}(${elem}) $value]]
+        uplevel 1 [list namespace eval $real_ns [list variable $var]]
+        uplevel 1 [list namespace eval $real_ns [list set ${var}(${elem}) $value]]
+    }
 }
 
 # create a new variable if it does not exist already
 proc ::tmk::config_variable {name args} {
-	set ns [uplevel 1 [list ::tmk::config_extract_namespace $name]]
-	if { ([uplevel 1 config vars $name $ns] == {}) || ($args != {}) } {
-		uplevel 1 [list config set $name $args]
-	} 
+    set ns [uplevel 1 [list ::tmk::config_extract_namespace $name]]
+    if { ([uplevel 1 config vars $name $ns] == {}) || ($args != {}) } {
+        uplevel 1 [list config set $name $args]
+    } 
 }
 
 # register and define a proc 
 proc ::tmk::config_proc {name arguments body} {
-	set ns [uplevel 1 [list ::tmk::config_extract_namespace $name]]
-	set real_ns [uplevel 1 [list ::tmk::config_real_namespace $name]]
-	set var [namespace tail $name]
-	
-	dbg_msg "caching proc ($ns,$var)"
-	# if it doesn't exist yet, create __CACHED_VARS in that namespace
-	if {[uplevel 1 info vars ${ns}::__CACHED_PROCS] == {}} {
-		uplevel 1 [list namespace eval $ns [list variable __CACHED_PROCS {}]]
-	}
-	# don't register variable twice
-	if {![uplevel 1 lcontains \$\{${ns}::__CACHED_PROCS\} $var]} {
-		uplevel 1 [list namespace eval $ns [list lappend __CACHED_PROCS $var]]
-	}
-	# actually define the procedure
-	uplevel 1 [list namespace eval $ns [list proc $var $arguments $body]]
-	# we define it in both places for local usage
-	uplevel 1 [list namespace eval $real_ns [list proc $var $arguments $body]]
+    set ns [uplevel 1 [list ::tmk::config_extract_namespace $name]]
+    set real_ns [uplevel 1 [list ::tmk::config_real_namespace $name]]
+    set var [namespace tail $name]
+    
+    dbg_msg "caching proc ($ns,$var)"
+    # if it doesn't exist yet, create __CACHED_VARS in that namespace
+    if {[uplevel 1 info vars ${ns}::__CACHED_PROCS] == {}} {
+        uplevel 1 [list namespace eval $ns [list variable __CACHED_PROCS {}]]
+    }
+    # don't register variable twice
+    if {![uplevel 1 lcontains \$\{${ns}::__CACHED_PROCS\} $var]} {
+        uplevel 1 [list namespace eval $ns [list lappend __CACHED_PROCS $var]]
+    }
+    # actually define the procedure
+    uplevel 1 [list namespace eval $ns [list proc $var $arguments $body]]
+    # we define it in both places for local usage
+    uplevel 1 [list namespace eval $real_ns [list proc $var $arguments $body]]
 }
 
 # return list of cached variable names that match the pattern
 proc ::tmk::config_vars { pattern {ns {}} } {
-	set vars {}
-	ifdef ${ns}::__CACHED_VARS {
-		eval set vars \$\{${ns}::__CACHED_VARS\}
-		set vars [lmap $vars {${ns}::$ITEM}]
-		set vars [lunify [lfilter $vars {[string match $pattern $ITEM]}]]
-	}
-	
-	if {$ns == {}} {set ns "::"}
-	
-	set children [namespace children $ns]
-	foreach c $children {
-		set vars [concat $vars [config_vars $pattern $c]]
-	}
-	return $vars
+    set vars {}
+    ifdef ${ns}::__CACHED_VARS {
+        eval set vars \$\{${ns}::__CACHED_VARS\}
+        set vars [lmap $vars [subst -nocommands {string range ${ns}::\$ITEM 0 end}]]
+        set vars [lunify [lfilter $vars {[string match $pattern $ITEM]}]]
+    }
+    
+    if {$ns == {}} {set ns "::"}
+    
+    set children [namespace children $ns]
+    foreach c $children {
+        set vars [concat $vars [config_vars $pattern $c]]
+    }
+    return $vars
 }
 
 # return list of cached procedure names that match the pattern
 proc ::tmk::config_procs { pattern {ns {}} } {
-	set vars {}
-	ifdef ${ns}::__CACHED_PROCS {
-		eval set vars \$\{${ns}::__CACHED_PROCS\}
-		set vars [lmap $vars {${ns}::$ITEM}]
-		set vars [lunify [lfilter $vars {[string match $pattern $ITEM]}]]
-	}
-	
-	if {$ns == {}} {set ns "::"}
-	
-	set children [namespace children $ns]
-	foreach c $children {
-		set vars [concat $vars [config_procs $pattern $c]]
-	}
-	return $vars
+    set vars {}
+    ifdef ${ns}::__CACHED_PROCS {
+        eval set vars \$\{${ns}::__CACHED_PROCS\}
+        set vars [lmap $vars [subst -nocommands {string range ${ns}::\$ITEM 0 end}]]
+        set vars [lunify [lfilter $vars {[string match $pattern $ITEM]}]]
+    }
+    
+    if {$ns == {}} {set ns "::"}
+    
+    set children [namespace children $ns]
+    foreach c $children {
+        set vars [concat $vars [config_procs $pattern $c]]
+    }
+    return $vars
 }
 
 # delete all cache entries (e.g. when doing a re-config)
 proc ::tmk::config_delete {} {
-	set res 0
-	catch {file delete -force -- [config_dir]; set res 1}
-	if {!$res} {
-		exit_msg "cannot delete cache"
-	}
+    set res 0
+    catch {file delete -force -- [config_dir]; set res 1}
+    if {!$res} {
+        exit_msg "cannot delete cache"
+    }
 }
 
 # create a new cache directory (or registry entry)
 proc ::tmk::config_create_dir {} {
-	if [config exists] {
-		config delete 
-	}
-	
-	set confdir [config dir]
-	if {![file isdirectory $confdir]} {
-		set res [catch {file mkdir $confdir} msg]	
-		if $res {
-			exit_msg "cannot create cache dir $confdir:\n  $msg"
-		}
-	}
+    if [config exists] {
+        config delete 
+    }
+    
+    set confdir [config dir]
+    if {![file isdirectory $confdir]} {
+        set res [catch {file mkdir $confdir} msg]    
+        if $res {
+            exit_msg "cannot create cache dir $confdir:\n  $msg"
+        }
+    }
 }
 
 proc ::tmk::config_make_subdirs {os arch board} {
-	set path [file dirname [config filename $os $arch $board]]
-	
-	if {![file isdirectory $path]} {
-		set res [catch {file mkdir $path} msg]	
-		if $res {
-			exit_msg "cannot create cache dir $path:\n  $msg"
-		}
-	}
+    set path [file dirname [config filename $os $arch $board]]
+    
+    if {![file isdirectory $path]} {
+        set res [catch {file mkdir $path} msg]    
+        if $res {
+            exit_msg "cannot create cache dir $path:\n  $msg"
+        }
+    }
 }
 
 proc ::tmk::config_get_oses {} {
-	set oss {}
-	set os_nss [namespace children ::tmk]
-	foreach os_ns $os_nss {
-		set os_ns [namespace tail $os_ns]
-		if {[string range $os_ns 0 11] == "__config_os="} {
-			lappend oss [string range $os_ns 12 end]
-		}
-	}
-	
-	return $oss
+    set oss {}
+    set os_nss [namespace children ::tmk]
+    foreach os_ns $os_nss {
+        set os_ns [namespace tail $os_ns]
+        if {[string range $os_ns 0 11] == "__config_os="} {
+            lappend oss [string range $os_ns 12 end]
+        }
+    }
+    
+    return $oss
 }
 
 proc ::tmk::config_get_archs {os} {
-	set archs {}
-	set arch_nss [namespace children ::tmk::__config_os=${os}]
-	foreach arch_ns $arch_nss {
-		set arch_ns [namespace tail $arch_ns]
-		if {[string range $arch_ns 0 13] == "__config_arch="} {
-			lappend archs [string range $arch_ns 14 end]
-		}
-	}
-	
-	return $archs
+    set archs {}
+    set arch_nss [namespace children ::tmk::__config_os=${os}]
+    foreach arch_ns $arch_nss {
+        set arch_ns [namespace tail $arch_ns]
+        if {[string range $arch_ns 0 13] == "__config_arch="} {
+            lappend archs [string range $arch_ns 14 end]
+        }
+    }
+    
+    return $archs
 }
 
 proc ::tmk::config_get_boards {os arch} {
-	set boards {}
-	set board_nss [namespace children ::tmk::__config_os=${os}::__config_arch=${arch}]
-	foreach board_ns $board_nss {
-		set board_ns [namespace tail $board_ns]
-		if {[string range $board_ns 0 14] == "__config_board="} {
-			lappend boards [string range $board_ns 15 end]
-		}
-	}
-	
-	return $boards
+    set boards {}
+    set board_nss [namespace children ::tmk::__config_os=${os}::__config_arch=${arch}]
+    foreach board_ns $board_nss {
+        set board_ns [namespace tail $board_ns]
+        if {[string range $board_ns 0 14] == "__config_board="} {
+            lappend boards [string range $board_ns 15 end]
+        }
+    }
+    
+    return $boards
 }
 
 # save all vars and procs in config cache namespace
 proc ::tmk::config_save {} {
-	
-	config delete 
-	config create_dir
-	
-	foreach os [config get_oses] {
-		puts ${os}:
-		foreach arch [config get_archs $os] {
-			puts "\t$arch:"
-			foreach board [config get_boards $os $arch] {
-				puts "\t\t$board"
-				
-				set cache_contents [config_dump ::tmk::__config_os=${os}::__config_arch=${arch}::__config_board=${board}]
-				config make_subdirs $os $arch $board
-				set filename [config filename $os $arch $board]
-				if [catch {write_file $filename cache_contents} msg] {
-					exit_msg "cannot create config ${filename}:\n  $msg"
-				}
-			}
-		}
-	}
+    
+    config delete 
+    config create_dir
+    
+    foreach os [config get_oses] {
+        puts ${os}:
+        foreach arch [config get_archs $os] {
+            puts "\t$arch:"
+            foreach board [config get_boards $os $arch] {
+                puts "\t\t$board"
+                
+                set cache_contents [config_dump ::tmk::__config_os=${os}::__config_arch=${arch}::__config_board=${board}]
+                config make_subdirs $os $arch $board
+                set filename [config filename $os $arch $board]
+                if [catch {write_file $filename cache_contents} msg] {
+                    exit_msg "cannot create config ${filename}:\n  $msg"
+                }
+            }
+        }
+    }
 }
 
 # return all cached config definitions in the form of a Tcl/tmk script
 proc ::tmk::config_dump {{ns ::}} {
-	return [dump_namespace $ns 0]
+    return [dump_namespace $ns 0]
 }
 
 # dump all cached variables + procedure definitions of the given namespace
@@ -454,64 +445,64 @@ proc ::tmk::config_dump {{ns ::}} {
 # e.g. this is what will be saved in the config cache file
 proc ::tmk::dump_namespace { {ns {::}} {depth 0}} {
 
-	set getvars {\[lmap \$\{${ns}::__CACHED_VARS\} \{${ns}::\$ITEM\}\]}
-	set getprocs {\[lmap \$\{${ns}::__CACHED_PROCS\} \{${ns}::\$ITEM\}\]}
-	
-	set s [blanks $depth]
+    set getvars {\[lmap \$\{${ns}::__CACHED_VARS\} \{string range ${ns}::\$ITEM 0 end\}\]}
+    set getprocs {\[lmap \$\{${ns}::__CACHED_PROCS\} \{string range ${ns}::\$ITEM 0 end\}\]}
+    
+    set s [blanks $depth]
 
-	# 1) create namespace
-	if {$depth == 0} {
-		set r "${s}namespace eval :: \{\n"
-	} else {
-		set r "${s}namespace eval [namespace tail $ns] \{\n"
-	}
-	incr depth 2
-	set ss [blanks $depth]
+    # 1) create namespace
+    if {$depth == 0} {
+        set r "${s}namespace eval :: \{\n"
+    } else {
+        set r "${s}namespace eval [namespace tail $ns] \{\n"
+    }
+    incr depth 2
+    set ss [blanks $depth]
 
-	# 2) dump variables
-	set vars {}
-	catch {eval eval set vars $getvars}
-	foreach v $vars {
-		set vname [namespace tail $v]
-		if [namespace eval $ns array exists $vname] {
-			# array variable
-			append r "${ss}variable $vname\n"
-			foreach x [array names $v] {
-				eval set vv \${$v\($x\)}
-				append r "${ss}set [list ${vname}($x) $vv]\n"
-			}
-		} else {
-			# scalar variable
-			eval set vv \$\{$v\}
-			append r "${ss}variable [list $vname $vv]\n"
-		}
-	}
+    # 2) dump variables
+    set vars {}
+    catch {eval eval set vars $getvars}
+    foreach v $vars {
+        set vname [namespace tail $v]
+        if [namespace eval $ns array exists $vname] {
+            # array variable
+            append r "${ss}variable $vname\n"
+            foreach x [array names $v] {
+                eval set vv \${$v\($x\)}
+                append r "${ss}set [list ${vname}($x) $vv]\n"
+            }
+        } else {
+            # scalar variable
+            eval set vv \$\{$v\}
+            append r "${ss}variable [list $vname $vv]\n"
+        }
+    }
 
-	# 3) dump procedures
-	set procs {}
-	catch {eval eval set procs $getprocs}
-	foreach p $procs {
-		set args [info args $p]
-		set body [info body $p] 
-		append r "${ss}proc [list [namespace tail $p] $args $body]\n"
-	}
+    # 3) dump procedures
+    set procs {}
+    catch {eval eval set procs $getprocs}
+    foreach p $procs {
+        set args [info args $p]
+        set body [info body $p] 
+        append r "${ss}proc [list [namespace tail $p] $args $body]\n"
+    }
 
-	# 4) recursive calls for children namespaces
-	if {$ns == {}} {set ns "::"}
-	set children [namespace children $ns]
-	if [llength $children] {
-		append r "\n"
-		foreach c $children {
-			append r "[dump_namespace $c $depth]"
-		}
-	}
+    # 4) recursive calls for children namespaces
+    if {$ns == {}} {set ns "::"}
+    set children [namespace children $ns]
+    if [llength $children] {
+        append r "\n"
+        foreach c $children {
+            append r "[dump_namespace $c $depth]"
+        }
+    }
 
-	# 5) close namespace
-	if {$s != $ss} {
-		append r "${s}\}\n"
-	}
-	
-	return $r
+    # 5) close namespace
+    if {$s != $ss} {
+        append r "${s}\}\n"
+    }
+    
+    return $r
 }
 
 

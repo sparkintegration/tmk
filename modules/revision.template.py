@@ -6,6 +6,7 @@
 REVISION    =   "{REVISION}"
 DIRECTORY   =   "{DIRECTORY}"
 URL         =   "{URL}"
+VERSION     =   "{VERSION}"
 
 # Date of generation
 GENERATION_DATE     =   "{GEN_DATE}"

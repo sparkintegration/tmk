@@ -1,111 +1,215 @@
-#	Title: python Module
+#    Title: python Module
 #
 # =========================================================================
 #
-# 		TMK module for building python C extensions
+#         TMK module for building python C extensions
 # ===========================================================================
 
-#	Variable: PROJLIBS
-#		Paths to project libraries that the current build target depends on.
-#		These paths are relative to the `$::PROJROOT` directory and will be
-#		recursed into and built as needed.
+#    Variable: PROJLIBS
+#        Paths to project libraries that the current build target depends on.
+#        These paths are relative to the `$::PROJROOT` directory and will be
+#        recursed into and built as needed.
 set_ifndef PROJLIBS {}
 
-#	Variable: DEVELOPMENT_MODE
-#		Set to true if packages should be built in development mode (i.e python setup.py develop)
+#    Variable: DEVELOPMENT_MODE
+#        Set to true if packages should be built in development mode (i.e python setup.py develop)
 set_ifndef DEVELOPMENT_MODE 0
 
-proc extension_target {files} {
-	if { ![lcontains $::tmk::cmdLineTargets "clean"] } {
-	
-		set cflags {}
-		set libpaths {}
-		set libs {}
-		set link_ldflags [::link::ld_flags]
-	
-		#TODO: This should come from the swig stuff (or at least somewhere in config/arch/os/osx.tmk)
-		when_target os=osx {
-			lappend cflags "-I/System/Library/Frameworks/Python.framework/Headers"
-			lappend cflags "-dynamic"
-			lappend link_ldflags "-framework Python"
-			lappend cflags -I[pwd]
-			foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
-				lappend cflags -I$dir
-		    }
-			lremove cflags -Werror ;
-			
-			proc getModuleName {basename} {
-				return $basename.so
-			}
-		}
-		
-		when_target os=mswin {
-			set cflags [::c::default_flags]
-			lappend cflags "-I/cross/win32/include/python-include"
-			lappend cflags -I[pwd]
-			lappend libpaths "/cross/win32/lib/python-libs"
-			lappend libs "python25"
-			foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
-				lappend cflags -I$dir
-		    }
-		
-			proc getModuleName {basename} {
-				return $basename.pyd
-			}
-		}
-	
-		foreach file $files {
-			::c::make_obj ${file}.c {} [subst {{$cflags}}] undef
-		
-			set def_libspec [::link::default_libspec]
-			set additional_libspec [::link::libspec create \{$libpaths\} \{$libs\} \{\} \{\}]
-			
-			set libtarget [::link::make_shlib [getModuleName $file] ${file}.o \
-				[::link::libspec merge $def_libspec $additional_libspec] [subst {$link_ldflags}] undef]
-				
-			build $libtarget
-			
-			set copyrule {
-				eval file copy -force -- [file join [tmk_output_dir] [python::getModuleName $file]] .
-			}
-			
-			target copylib $libtarget [subst -nocommands $copyrule]
-			build copylib
-		}
-	
-	} else {
-		set exts {"pyd" "so"}
-		foreach ext $exts {
-			puts "Deleting $ext files"
-			if { [llength [glob -nocomplain "*.$ext"]] } {
-				eval file delete -force -- [glob -nocomplain *.$ext]
-			}
-		}
-	}
+lconcat ::CLEAN_PATTERNS { *.pyc *.so *.pyd *.egg-info }
 
+proc extension_target { files } {
+    if { ![tmk::cleaning] } {
+        set cflags {}
+        set cxxflags {}
+        set libpaths {}
+        set libs {}
+        set link_ldflags [::link::ld_flags]
+
+        when_target os=osx {
+            if { [ info exists ::c::DETECT_OBJ ] } {
+                set cflags [::c::default_flags]
+                lappend cflags "-I/Library/Frameworks/Python.framework/Headers"
+                lappend cflags "-dynamic"
+                lappend cflags -I[pwd]
+                foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+                    lappend cflags -I$dir
+                }
+                lremove cflags -Werror ;
+            }
+        
+            if { [ info exists ::cxx::DETECT_OBJ ] } {
+                set cxxflags [::cxx::default_flags]
+                lappend cxxflags "-I/Library/Frameworks/Python.framework/Headers"
+                lappend cxxflags "-dynamic"
+                lappend cxxflags -I[pwd]
+                foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+                    lappend cxxflags -I$dir
+                }
+    
+                lremove cxxflags -Werror ;
+            }
+            lappend link_ldflags "-framework Python"
+        
+            proc getModuleName {basename} {
+                return $basename.so
+            }
+        }
+    
+        when_target { os=mswin } {
+            if { [ info exists ::c::DETECT_OBJ ] } {
+                set cflags [::c::default_flags]
+                lappend cflags -I[pwd]
+                foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+                    lappend cflags -I$dir
+                }
+            }
+    
+            if { [ info exists ::cxx::DETECT_OBJ ] } {
+                set cxxflags [::cxx::default_flags]
+                lappend cxxflags -I[pwd]
+                foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+                    lappend cxxflags -I$dir
+                }
+            }
+            
+            when_target arch!=x86_64 {
+                if { [ info exists ::c::DETECT_OBJ ] } {
+                    lappend cflags "-I[file join $::PROJROOT precompiled windows x86 include python-include]"
+                }
+
+                if { [ info exists ::cxx::DETECT_OBJ ] } {
+                    lappend cxxflags "-I[file join $::PROJROOT precompiled windows x86 include python-include]"
+                }
+                
+                lappend libpaths [file join $::PROJROOT precompiled windows x86 lib python-libs]
+                lappend libs "python25"
+            }
+            when_target arch=x86_64 {
+                if { [ info exists ::c::DETECT_OBJ ] } {
+                    lappend cflags "-I[file join $::PROJROOT precompiled windows x86_64 include python-include]"
+                }
+
+                if { [ info exists ::cxx::DETECT_OBJ ] } {
+                    lappend cxxflags "-I[file join $::PROJROOT precompiled windows x86_64 include python-include]"
+                }
+                
+                lappend libpaths [file join $::PROJROOT precompiled windows x86_64 lib python-libs]
+                lappend libs "python25"
+            }
+            lappend libpaths "/cross/distrix3/mingw64/lib/python-libs"
+            lappend cflags "-I/cross/distrix3/mingw64/include/python-include"
+            lappend cxxflags "-I/cross/distrix3/mingw64/include/python-include"            
+            
+            proc getModuleName {basename} {
+                return $basename.pyd
+            }
+        }
+    
+        when_target os=linux {
+            if { [ info exists ::c::DETECT_OBJ ] } {
+                set cflags [::c::default_flags]
+                if { [target_matches arch=x86_64] } {
+                    lappend cflags "-I/cross/distrix3/linux64/usr/include/python2.5"
+                } elseif { [target_matches arch=redhat_64] } {
+                    lappend cflags "-I/cross/distrix3/redhat64/x86_64-redhat-linux/usr/include/python2.4"
+                } else {
+                    lappend cflags "-I/cross/distrix3/linux/usr/include/python-include"
+                }
+                lappend cflags -I[pwd]
+                foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+                    lappend cflags -I$dir
+                }
+            }
+        
+            if { [ info exists ::cxx::DETECT_OBJ ] } {
+                set cxxflags [::cxx::default_flags]
+                if { [target_matches arch=x86_64] } {
+                    lappend cxxflags "-I/cross/distrix3/linux64/usr/include/python2.5"
+                } elseif { [target_matches arch=redhat_64] } {
+                    lappend cxxflags "-I/cross/distrix3/redhat64/x86_64-redhat-linux/usr/include/python2.4"
+                } else {
+                    lappend cxxflags "-I/cross/distrix3/linux/usr/include/python-include"
+                }
+                lappend cxxflags -I[pwd]
+                foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+                    lappend cxxflags -I$dir
+                }
+            }
+    
+            proc getModuleName {basename} {
+                return $basename.so
+            }
+        }
+
+        foreach file $files {
+        
+            if {[file exists $file.c]} {
+                ::c::make_obj ${file}.c {} [subst {{$cflags}}] undef
+            }
+        
+            if {[file exists $file.cpp]} {
+                ::cxx::make_obj ${file}.cpp {} [subst {{$cxxflags}}] undef
+            }
+        
+            set def_libspec [::link::default_libspec]
+            set additional_libspec [::link::libspec create \{$libpaths\} \{$libs\} \{\} \{\}]
+        
+            set libtarget [::link::make_shlib [getModuleName $file] ${file}.o \
+                [::link::libspec merge $def_libspec $additional_libspec] [subst {$link_ldflags}] undef]
+            
+            build $libtarget
+        
+            set copyrule {
+                eval file copy -force -- [file join [tmk_output_dir] [python::getModuleName $file]] .
+            }
+        
+            target copylib_$file $libtarget [subst -nocommands $copyrule]
+            build copylib_$file
+        }
+    }
 }
 
+proc setup_developer {} {
+    target setup ALWAYS_BUILD {
+        if { [catch {exec python setup.py develop}] == 0 } {
+            log_msg "Successfully installed python egg"
+         } else {
+            log_msg "Problem installing python egg"
+        }
+        
+    }
+    build setup
+}
+
+proc setup_egg {} {
+    target setup ALWAYS_BUILD {
+        set output_dir [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
+        cmd python setup.py bdist_egg --dist-dir=${output_dir} --bdist-dir=${output_dir}/build
+        file delete -force build
+    }
+    build setup
+}
+
+if {$::PREBUILD} { return }
+
 eval_after {
-	if { ![tmk::cleaning] } {
-	
-		set currentdir [pwd]
-		foreach dir $python::PROJLIBS {
-			set path [file join $::PROJROOT $dir]
-			if { $path != $currentdir } {
-				if { [::tmk::handle_subdirs $path $currentdir] } {
-					log_msg "back in directory $currentdir"
-				}
-			}
-		}
-		
-		if [file exists setup.py] {
-			if { $python::DEVELOPMENT_MODE } {
-				cmd python setup.py develop
-			} else {
-				set output_dir [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
-				cmd python setup.py bdist_egg --dist-dir=$output_dir --bdist-dir=$output_dir/build
-				file delete -force build
-			}
-		}
-	}
+    if { ![tmk::cleaning] } {
+        set currentdir [pwd]
+        foreach dir $python::PROJLIBS {
+            set path [file join $::PROJROOT $dir]
+            if { $path != $currentdir } {
+                if { [::tmk::handle_subdirs $path $currentdir] } {
+                    log_msg "back in directory $currentdir"
+                }
+            }
+        }
+        
+        if [file exists setup.py] {
+            if { $python::DEVELOPMENT_MODE } {
+                python::setup_developer
+            } else {
+                python::setup_egg
+            }
+        }
+    }
 }

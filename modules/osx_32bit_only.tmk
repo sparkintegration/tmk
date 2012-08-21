@@ -1,0 +1,3 @@
+when_target os=osx { 
+    set ::__config_archs { i386 }
+}

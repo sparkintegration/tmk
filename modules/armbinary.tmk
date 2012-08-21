@@ -1,0 +1,34 @@
+set_ifndef ::ARM_BINARY 1
+
+eval_after {
+    eval_after {
+        if {$::ARM_BINARY} {
+            set programs {}
+            foreach exe $::link::PROGRAMS {
+                switch [llength $exe] {
+                    1 { set obj $exe }
+                    2 { 
+                        set exe [lindex $exe 0]
+                    }
+                    default {
+                        exit_msg "syntax error in ::link::PROGRAMS: $::link::PROGRAMS"
+                    }
+                }
+                lappend programs [filename_exe $exe]
+            }
+        
+            foreach program $programs {
+                set rule {
+                    set cmds {}
+                    lappend cmds [list exec arm-elf-objcopy -O binary [file join [tmk_output_dir] $program] [file join [tmk_output_dir] $program.bin]]
+                    lappend cmds [list exec arm-elf-size --target=binary [file join [tmk_output_dir] $program.bin] >@stdout]
+
+                    uplevel \#0 cmd_thread \$cmds
+                }
+
+                target ${program}.bin $program [subst -nocommands $rule]
+                build ${program}.bin
+            }
+        }
+    }
+}

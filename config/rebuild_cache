@@ -1,8 +1,0 @@
-The modification time of this file is used to compare the
-age of the user's config cache with the date of the latest
-central config change.
-
-So if you want that all users' config cache files are 
-updated, simply do a 'touch rebuild_cache' in this 
-directory. When a user invokes tmk the next time, the
-config cache will be rebuilt (automatic -reconfig).

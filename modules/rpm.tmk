@@ -1,0 +1,276 @@
+set_ifndef BUILD_DIR [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
+
+set_ifndef PACKAGES {}
+
+eval_after {
+    foreach package_array $rpm::PACKAGES {
+        upvar \#0 $package_array package
+
+        if { ![info exists package(PACKAGER)] } {
+            set package(PACKAGER) "Test User"
+        }
+
+        if { ![info exists package(DISTRIBUTION)] } {
+            set package(DISTRIBUTION) "Red Hat Enterprise Linux v5.5"
+        }
+
+        if { ![info exists package(VENDOR)] } {
+            set package(VENDOR) "Spark Integration Technologies Inc. <support@sparkintegration.com>"
+        }
+
+        if { ![info exists package(SUMMARY)]} {
+            set package(SUMMARY) ""
+        }
+
+        if { ![info exists package(NAME)] } {
+            set package(NAME) ""
+        }
+
+        if { ![info exists package(VERSION)] } {
+            set package(VERSION) ""
+        }
+
+        if { ![info exists package(RELEASE)]} {
+            set package(RELEASE) "el5"
+        }
+
+        if { ![info exists package(GROUP)]} {
+            set package(GROUP) ""
+        }
+
+        if { ![info exists package(COPYRIGHT)]} {
+            set package(COPYRIGHT) ""
+        }
+
+        if { ![info exists package(URL)]} {
+            set package(URL) "http://www.sparkintegration.com"
+        }
+
+        if { ![info exists package(REQUIRES)]} {
+            set package(REQUIRES) ""
+        }
+
+        if { ![info exists package(DESCRIPTION)]} {
+            set package(DESCRIPTION) ""
+        }
+
+        if { ![info exists package(POST)]} {
+            set package(POST) ""
+        }
+
+        if { ![info exists package(PREUN)]} {
+            set package(PREUN) ""
+        }
+
+        if { ![info exists package(POSTUN)]} {
+            set package(POSTUN) ""
+        }
+
+        if { ![info exists package(ARCH)]} {
+            set package(ARCH) "i386"
+        }
+
+        if { ![info exists package(TMK_DEPENDENCIES)]} {
+            set package(TMK_DEPENDENCIES) ""
+        }
+
+        if { ![info exists package(FILES)]} {
+            set package(FILES) {}
+        }
+
+        if { ![info exists package(EVAL_FILES)]} {
+            set package(EVAL_FILES) {}
+        }
+
+        if { ![info exists package(CONF_FILES)]} {
+            set package(CONF_FILES) {}
+        }
+
+        log_msg "Making rpm file for $package(NAME)"
+
+        set output "Package: $package(NAME)\n"
+        set output "${output}Packager: $package(PACKAGER)\n"
+        set output "${output}Distribution: $package(DISTRIBUTION)\n"
+        set output "${output}Vendor: $package(VENDOR)\n"
+        set output "${output}Summary: $package(SUMMARY)\n"
+        set output "${output}Version: $package(VERSION)\n"
+        set output "${output}Release: $package(RELEASE)\n"
+        set output "${output}Group: $package(GROUP)\n"
+        set output "${output}Copyright: $package(COPYRIGHT)\n"
+        set output "${output}URL: $package(URL)\n"
+        foreach thing $package(REQUIRES) {
+            set output "${output}Requires: $thing\n"
+        }
+        set output "${output}Description: $package(DESCRIPTION)\n"
+        foreach thing $package(POST) {
+            set output "${output}Post: $thing\n"
+        }
+        foreach thing $package(PREUN) {
+            set output "${output}Preun: $thing\n"
+        }
+        foreach thing $package(POSTUN) {
+            set output "${output}Postun: $thing\n"
+        }
+        set output "${output}Arch: $package(ARCH)\n"
+        log_msg "$output"
+
+        set rpmDir [file join $rpm::BUILD_DIR "rpm" $package(NAME)]
+        file delete -force $rpmDir
+        set buildDir [file join $rpmDir "bin"]
+        file mkdir $buildDir
+        set binDir [file join $buildDir "$package(NAME)-root"]
+        file mkdir $binDir
+        set outputDir [file join $rpmDir "RPMS"]
+        file mkdir $outputDir
+        set specDir [file join $rpmDir "SPECS"]
+        file mkdir $specDir
+        set srpmsDir [file join $rpmDir "SRPMS"]
+        file mkdir $srpmsDir
+
+        set rpmmacros "%packager\t$package(PACKAGER)\n"
+        set rpmmacros "${rpmmacros}%distribution\t$package(DISTRIBUTION)\n"
+        set rpmmacros "${rpmmacros}%vendor\t$package(VENDOR)\n\n"
+        set rpmmacros "${rpmmacros}%_topdir\t$rpmDir\n"
+        set rpmmacros "${rpmmacros}%_tmppath\t%{_topdir}/bin\n"
+        set rpmmacros "${rpmmacros}%_builddir\t%{_tmppath}\n\n"
+
+        set rpmmacros "${rpmmacros}%_rpmtopdir\t%{_topdir}/%{name}\n"
+        set rpmmacros "${rpmmacros}%_sourcedir \t%{_rpmtopdir}\n"
+        set rpmmacros "${rpmmacros}%_specdir\t%{_topdir}/SPECS\n"
+        set rpmmacros "${rpmmacros}%_rpmdir\t%{_topdir}/RPMS\n"
+        set rpmmacros "${rpmmacros}%_srcrpmdir\t%{_topdir}/SRPMS\n"
+        set rpmmacros "${rpmmacros}%_rpmfilename\t%%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm\n"
+
+        set rpmmacrosFile [file join "~" ".rpmmacros"]
+        set rpmmacrosFileBak [file join "~" ".rpmmacros.bak"]
+
+        set rpmRule {
+            set spec "Summary: $package(SUMMARY)\n"
+            set spec "\${spec}Name: $package(NAME)\n"
+            set spec "\${spec}Version: $package(VERSION)\n"
+            set spec "\${spec}Release: $package(RELEASE)\n"
+            set spec "\${spec}Group: $package(GROUP)\n"
+            set spec "\${spec}Copyright: $package(COPYRIGHT)\n"
+            set spec "\${spec}URL: $package(URL)\n"
+            set spec "\${spec}Packager: $package(PACKAGER)\n"
+            set spec "\${spec}BuildRoot: %_topdir/%{name}\n"
+            set spec "\${spec}AutoReqProv: no\n\n"
+
+            set requires {$package(REQUIRES)}
+            set things {$package(FILES)}
+            set eval_files {$package(EVAL_FILES)}
+            set architecture {$package(ARCH)}
+            set post {$package(POST)}
+            set preun {$package(PREUN)}
+            set postun {$package(POSTUN)}
+            set conffiles {$package(CONF_FILES)}
+
+            foreach thing \$requires {
+                set spec "\${spec}Requires: \$thing\n"
+            }
+            set spec "\${spec}\n"
+
+            set spec "\${spec}%description\n"
+            set spec "\${spec}$package(DESCRIPTION)\n"
+
+            set spec "\${spec}%files\n"
+            set spec "\${spec}%defattr(-,root,root)\n"
+
+            foreach thing \$things {
+                set path [lindex \$thing 0]
+                set file [lindex \$thing 1]
+                set nameList [split \$file /]
+                set fileName [lindex \$nameList end]
+                set spec "\${spec}/\$path/\$fileName\n"
+            }
+            foreach thing \$eval_files {
+                set path [lindex \$thing 0]
+                set file [eval [lindex \$thing 1]]
+                if {\$file != ""} {
+                    set counter 0
+                    foreach component \$file {
+                        set nameList [split \$component /]
+                        set fileName [lindex \$nameList end]
+                        set spec "\${spec}/\$path/\$fileName\n"
+                        incr counter
+                    }
+                }
+            }
+            set spec "\${spec}\n"
+
+            if { [llength \$conffiles] > 0 } {
+                set spec "\${spec}%config(noreplace)\n"
+                foreach thing \$conffiles {
+                    set spec "\${spec}\$thing\n"
+                }
+            }
+
+            set spec "\${spec}%post\n"
+            foreach thing \$post {
+                set spec "\${spec}\$thing\n"
+            }
+            set spec "\${spec}\n"
+
+            set spec "\${spec}%preun\n"
+            foreach thing \$preun {
+                set spec "\${spec}\$thing\n"
+            }
+            set spec "\${spec}\n"
+
+            set spec "\${spec}%postun\n"
+            foreach thing \$postun {
+                set spec "\${spec}\$thing\n"
+            }
+            set spec "\${spec}\n"
+
+            set specFile [file join $specDir "spark.spec"]
+
+            set fo [open "\$specFile" "w"]
+            puts \$fo "\$spec"
+            close \$fo
+
+            if { [file exists $rpmmacrosFile] } {
+                file copy -force $rpmmacrosFile $rpmmacrosFileBak
+            }
+
+            set out [open "$rpmmacrosFile" "w"]
+            puts \$out "$rpmmacros"
+            close \$out
+
+            # Copies all of the static files to the build directory
+            foreach thing \$things {
+                set path [lindex \$thing 0]
+                set localFile [lindex \$thing 1]
+                set localPath [file join $binDir \$path]
+                file mkdir [file join $binDir \$path]
+                if {\$localFile != ""} {
+                    cmd cp -Rfv \$localFile \$localPath
+                }
+            }
+
+            # Copies all of the dynamic file specifications to the build directory
+            foreach thing \$eval_files {
+                set path [lindex \$thing 0]
+                set localFile [eval [lindex \$thing 1]]
+                set localPath [file join $binDir \$path]
+                file mkdir [file join $binDir \$path]
+                if {\$localFile != ""} {
+                    foreach filename [split \$localFile] {
+                        cmd cp -Rfv \$filename \$localPath
+                    }
+                }
+            }
+            cmd rpmbuild -bb --target \$architecture \$specFile
+
+            if { [file exists $rpmmacrosFileBak] } {
+                file copy -force $rpmmacrosFileBak $rpmmacrosFile
+            } else {
+                file delete -force $rpmmacrosFile
+            }
+        }
+        if { ![tmk::cleaning] } {
+            target $package(NAME) $package(TMK_DEPENDENCIES) [subst -nocommands $rpmRule]
+            build $package(NAME)
+        }
+    }
+}

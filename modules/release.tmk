@@ -1,0 +1,6 @@
+set_attr RELEASE_MODE 1
+set_attr ENABLE_LICENSING 1
+
+if { $::CODELEVEL != "dbg" } {
+    lappend ::link::OPTIONS strip
+}

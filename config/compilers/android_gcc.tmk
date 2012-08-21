@@ -1,0 +1,22 @@
+# set up correct binary prefix for gcc tools
+set gcc_bin_prefix /cross/distrix3/android/toolchains/arm-linux-androideabi-4.4.3/prebuilt/darwin-x86/bin/arm-linux-androideabi-
+
+# source gcc.tmk
+source [file join $::tmk::compilersConfigDir gcc.tmk]
+
+# set android-specific flags
+set base_CFLAGS {--sysroot=/cross/distrix3/android/platforms/android-9/arch-arm}
+if { $__module == "cxx" } {
+    lconcat base_CFLAGS {
+        -I/cross/distrix3/android/sources/cxx-stl/gnu-libstdc++/include
+        -I/cross/distrix3/android/sources/cxx-stl/gnu-libstdc++/libs/armeabi/include
+    }
+}
+foreach flag {FLAGS_PRF FLAGS_DBG FLAGS_STD FLAGS_OPT FLAGS_MAX} {
+    config set $flag [concat $base_CFLAGS [set $flag]]
+}
+
+set base_LDFLAGS {--sysroot=/cross/distrix3/android/platforms/android-9/arch-arm}
+foreach flag {LDFLAGS_PRF LDFLAGS_DBG LDFLAGS_STD LDFLAGS_OPT LDFLAGS_MAX} {
+    config set $flag [concat $base_LDFLAGS [set $flag]]
+}

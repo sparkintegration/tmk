@@ -9,7 +9,7 @@
         <key>CFBundleExecutable</key>               <string>%EXE_NAME%</string>
         <key>CFBundleInfoString</key>               <string>%DESCRIPTION%</string>
         <key>CFBundleIconFile</key>                 <string>%ICON%</string>
-        <key>CFBundleIdentifier</key>               <string>com.sparkrobotics.%SHORT_NAME%</string>
+        <key>CFBundleIdentifier</key>               <string>%IDENTITY_ROOT%.%SHORT_NAME%</string>
         <key>CFBundleInfoDictionaryVersion</key>    <string>6.0</string>
         <key>CFBundlePackageType</key>              <string>APPL</string>
         <key>CFBundleShortVersionString</key>       <string>%VERSION%</string>
@@ -17,7 +17,7 @@
         <key>CFBundleVersion</key>                  <string>%INTERNAL_VERSION%</string>
         <key>NSAppleScriptEnabled</key>             <string>NO</string>
         <key>NSPrincipalClass</key>                 <string>NSApplication</string>
-        <key>NSHumanReadableCopyright</key>         <string>© %YEAR% Spark Robotics Technology Inc.</string>
+        <key>NSHumanReadableCopyright</key>         <string>© %YEAR% %OWNER%</string>
         <key>LSHasLocalizedDisplayName</key>        <string>NO</string>
     </dict>
 

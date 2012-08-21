@@ -5,33 +5,33 @@
 # add a rule for a single target pattern in a global struct
 # uses associative arrays
 proc ::tmk::add_rule { pat dep cmd } { 
-	# normalize it so the cache will work
-	set pat [targetname_short $pat]
-	dbg_msg "adding rule $pat <- $dep"
-	lappend ::tmk::rules($pat) [list $pat $dep $cmd]
+    # normalize it so the cache will work
+    set pat [targetname_short $pat]
+    dbg_msg "adding rule $pat <- $dep"
+    lappend ::tmk::rules($pat) [list $pat $dep $cmd]
 }
 
 # retreive list of rules for a certain pattern.
 # note that <pat> should be trimmed before handing it to any proc
 proc ::tmk::get_pattern_rules { pat } {
-	if [info exists ::tmk::rules($pat)] {
-		return $::tmk::rules($pat)
-	} else {
-		return [list]
-	}
+    if [info exists ::tmk::rules($pat)] {
+        return $::tmk::rules($pat)
+    } else {
+        return [list]
+    }
 }
 
 # compare patterns and create list of all matching rules
 proc ::tmk::get_target_rules { target } {
-	# match against all defined target patterns 
-	set result [list]
-	foreach pat [array names ::tmk::rules] {
-		if [string match $pat $target] {
-			set result [concat $result $::tmk::rules($pat)]
-		}
-	}
+    # match against all defined target patterns 
+    set result [list]
+    foreach pat [array names ::tmk::rules] {
+        if [string match $pat $target] {
+            set result [concat $result $::tmk::rules($pat)]
+        }
+    }
 
-	return $result
+    return $result
 }
 
 # retreive target pattern from a single rule
@@ -41,7 +41,7 @@ proc ::tmk::rule_pattern { rule } { return [lindex $rule 0] }
 proc ::tmk::rule_sources { rule } { return [lindex $rule 1] }
 
 # retreive commands from a single rule 
-proc ::tmk::rule_cmd	 { rule } { return [lindex $rule 2] }
+proc ::tmk::rule_cmd     { rule } { return [lindex $rule 2] }
 
 # ========================================================================
 # secondary dependencies storage/retreival routines
@@ -50,29 +50,29 @@ proc ::tmk::rule_cmd	 { rule } { return [lindex $rule 2] }
 # add secondary dependencies for a single target pattern in a global struct
 # uses associative arrays
 proc ::tmk::add_secondaries { pat dep } { 
-	if {[string trim $dep] == {}} {return}
-	dbg_msg "adding depend ($pat,$dep)"
+    if {[string trim $dep] == {}} {return}
+    dbg_msg "adding depend ($pat,$dep)"
 
-	# this function only stores a SINGLE pattern!
-	assert {[llength $pat] == 1}
+    # this function only stores a SINGLE pattern!
+    assert {[llength $pat] == 1}
 
-	# check if rule for this pattern already exists
-	if { ! [info exists ::tmk::secondaries($pat)] } {
-		set ::tmk::secondaries($pat) [list]
-	}
+    # check if rule for this pattern already exists
+    if { ! [info exists ::tmk::secondaries($pat)] } {
+        set ::tmk::secondaries($pat) [list]
+    }
 
-	# add new rule to list of rules
-	append ::tmk::secondaries($pat) " $dep"
+    # add new rule to list of rules
+    append ::tmk::secondaries($pat) " $dep"
 }
 
 # retreive list of secondary dependencies for a certain pattern.
 proc ::tmk::get_secondaries { pat } {
 
-	if [info exists ::tmk::secondaries($pat)] {
-		return $::tmk::secondaries($pat)
-	} else {
-		return [list]
-	}
+    if [info exists ::tmk::secondaries($pat)] {
+        return $::tmk::secondaries($pat)
+    } else {
+        return [list]
+    }
 }
 
 # ========================================================================
@@ -82,34 +82,34 @@ proc ::tmk::get_secondaries { pat } {
 # find wildcards in pattern and set corresponding wildcard variable values
 # returns list of {varname value} pairs
 proc ::tmk::make_wildcard_vars {pattern value {varprefix ""}} {
-	# properly terminate regexp pattern
-	set saved $pattern
-	set pattern "^$pattern\$"
-	# replace regexp special characters without special meaning (.+)
-	foreach p { {\.} {\+} {\[} {\]} {\|} {\(} {\)} } {
-		regsub -all $p $pattern $p pattern
-	}
-	# replace * and ? by their corresponding regexp sisters
-	#  and count how many wildcards we've got
-	set  count [regsub -all {\*} $pattern {(.*)} pattern]
-	incr count [regsub -all {\?} $pattern {(.)}  pattern]
+    # properly terminate regexp pattern
+    set saved $pattern
+    set pattern "^$pattern\$"
+    # replace regexp special characters without special meaning (.+)
+    foreach p { {\.} {\+} {\[} {\]} {\|} {\(} {\)} } {
+        regsub -all $p $pattern $p pattern
+    }
+    # replace * and ? by their corresponding regexp sisters
+    #  and count how many wildcards we've got
+    set  count [regsub -all {\*} $pattern {(.*)} pattern]
+    incr count [regsub -all {\?} $pattern {(.)}  pattern]
 
-	# create corresponding regexp command
-	if $count {
-		set cmd "regexp \{$pattern\} \{$value\} dummy "
-		for {set i 0} {$i < $count} {incr i} {append cmd "$varprefix$i "}
-		eval set check \[$cmd\]
-		if {!$check} {
-			exit_msg "regexp \{$pattern\} ($saved) does not match \{$value\}" 
-		}
-		assert {$check}
-		for {set i 0} {$i < $count} {incr i} {
-			lappend result [eval list $i \"\$$varprefix$i\"]
-		}
-		return $result	
-	} else {
-		return {}
-	}
+    # create corresponding regexp command
+    if $count {
+        set cmd "regexp \{$pattern\} \{$value\} dummy "
+        for {set i 0} {$i < $count} {incr i} {append cmd "$varprefix$i "}
+        eval set check \[$cmd\]
+        if {!$check} {
+            exit_msg "regexp \{$pattern\} ($saved) does not match \{$value\}" 
+        }
+        assert {$check}
+        for {set i 0} {$i < $count} {incr i} {
+            lappend result [eval list $i \"\$$varprefix$i\"]
+        }
+        return $result    
+    } else {
+        return {}
+    }
 }
 
 # Expand a T-expression. Make sure all special and user-defined vars are set
@@ -118,160 +118,158 @@ proc ::tmk::make_wildcard_vars {pattern value {varprefix ""}} {
 # - prefix is prepended to the variable names like ROOT, BASE, etc.
 proc ::tmk::expand_T_expr { T_pat T Ts cmd level mainname prefix } {
 
-	# special variables within rule commands
-	upvar $level $mainname	 item 
-	upvar $level ${prefix}ROOT root 
-	upvar $level ${prefix}TAIL tail
-	upvar $level ${prefix}DIR  dir
-	upvar $level ${prefix}EXT  ext
-	upvar $level ${prefix}BASE base
-	set item $T
-	set root [file rootname $T]
-	set tail [file tail $T]
-	set dir  [file dirname $T]
-	set ext  [file extension $T]
-	set base [file rootname [file tail $T]]
+    # special variables within rule commands
+    upvar $level $mainname     item 
+    upvar $level ${prefix}ROOT root 
+    upvar $level ${prefix}TAIL tail
+    upvar $level ${prefix}DIR  dir
+    upvar $level ${prefix}EXT  ext
+    upvar $level ${prefix}BASE base
+    set item $T
+    set root [file rootname $T]
+    set tail [file tail $T]
+    set dir  [file dirname $T]
+    set ext  [file extension $T]
+    set base [file rootname [file tail $T]]
 
-	# more special variables, matching the wildcard characters
-	set wildvars [::tmk::make_wildcard_vars $T_pat $Ts $prefix]
-	foreach v $wildvars {uplevel $level "set [lindex $v 0] [lindex $v 1]"}
+    # more special variables, matching the wildcard characters
+    set wildvars [::tmk::make_wildcard_vars $T_pat $Ts $prefix]
+    foreach v $wildvars {uplevel $level "set [lindex $v 0] [lindex $v 1]"}
 
-	# since the expression will be evaluated in a different context, we must
-	# export the expression (and import an error message)
-	upvar $level __expr__ret  ret
+    # since the expression will be evaluated in a different context, we must
+    # export the expression (and import an error message)
+    upvar $level __expr__ret  ret
 
-	# now evaluate expression in global context and return expanded expression
-	uplevel $level set __expr__ret \"$cmd\"
-	set result $ret
+    # now evaluate expression in global context and return expanded expression
+    uplevel $level set __expr__ret \"$cmd\"
+    set result $ret
 
-	# remove special variables from global context
-	unset item root tail dir ext base ret 
-	foreach v $wildvars {uplevel $level "unset [lindex $v 0]"}
+    # remove special variables from global context
+    unset item root tail dir ext base ret 
+    foreach v $wildvars {uplevel $level "unset [lindex $v 0]"}
 
-	# ... and that's it
-	return $result
+    # ... and that's it
+    return $result
 }
 
 # perform a command containing T-expressions. make sure all special
 # and user-defined vars are set; handle exceptions
 proc ::tmk::eval_T_command { T_pat T Ts cmd sources } {
-	# special variables within rule commands
-	set level \#0
-	upvar $level TARGET target
-	upvar $level ROOT   root
-	upvar $level TAIL   tail
-	upvar $level DIR	dir
-	upvar $level EXT	ext
-	upvar $level BASE   base
-	upvar $level SRC	src
-	set target $T
-	set root   [file rootname $T]
-	set tail   [file tail $T]
-	set dir	[file dirname $T]
-	set ext	[file extension $T]
-	set base   [file rootname [file tail $T]]
-	set src	$sources
+    # special variables within rule commands
+    set level \#0
+    upvar $level TARGET target
+    upvar $level ROOT   root
+    upvar $level TAIL   tail
+    upvar $level DIR    dir
+    upvar $level EXT    ext
+    upvar $level BASE   base
+    upvar $level SRC    src
+    set target $T
+    set root   [file rootname $T]
+    set tail   [file tail $T]
+    set dir    [file dirname $T]
+    set ext    [file extension $T]
+    set base   [file rootname [file tail $T]]
+    set src    $sources
 
-	# more special variables, matching the wildcard characters
-	set wildvars [::tmk::make_wildcard_vars $T_pat $Ts ""]
-	foreach v $wildvars {uplevel $level "set [lindex $v 0] [lindex $v 1]"}
+    # more special variables, matching the wildcard characters
+    set wildvars [::tmk::make_wildcard_vars $T_pat $Ts ""]
+    foreach v $wildvars {uplevel $level "set [lindex $v 0] [lindex $v 1]"}
 
-	# since the expression will be evaluated in global context, we must
-	# export the expression (and import an error message)
-	upvar $level __cmd__ret ret
-	set ret {}
+    # since the expression will be evaluated in global context, we must
+    # export the expression (and import an error message)
+    upvar $level __cmd__ret ret
+    set ret {}
 
-	# now evaluate and execute script in global context
-	set todo "catch \{$cmd\} __cmd__ret"
+    # now evaluate and execute script in global context
+    set todo "catch \{$cmd\} __cmd__ret"
 
-	# debugging output only if we first output the command...
-	dbg_msg "executing for target $T ($src): $cmd" 3
-	
-	# here it is actually executed
-	if {[uplevel $level $todo]} {
-		dbg_msg "!!! cmd = $todo"
-		exit_msg $ret
-	}
+    # debugging output only if we first output the command...
+    dbg_msg "executing for target $T ($src): $cmd" 3
+    
+    # here it is actually executed
+    if {[uplevel $level $todo]} {
+        dbg_msg "!!! cmd = $todo"
+        exit_msg $ret
+    }
 
-	# remove special variables from global context
-	unset target root tail dir ext base ret src
-	foreach v $wildvars {uplevel $level "unset [lindex $v 0]"}
+    # remove special variables from global context
+    unset target root tail dir ext base ret src
+    foreach v $wildvars {uplevel $level "unset [lindex $v 0]"}
 }
 
 # execute the stored code for this target; 
 # - handle exceptions
 # - update target state
 proc ::tmk::exec_target_code {pattern target cmd short src} {
-	# delete old cache entry!
-	if [info exists ::tmk::targetCache($short)] {
-		unset ::tmk::targetCache($short)
-	}
+    # delete old cache entry!
+    if [info exists ::tmk::targetCache($short)] {
+        unset ::tmk::targetCache($short)
+    }
 
-	::tmk::eval_T_command $pattern $target $short $cmd $src
+    ::tmk::eval_T_command $pattern $target $short $cmd $src
 
-	# mark as updated if the rule has not already marked the target
-	if {![info exists ::tmk::targetCache($short)]} {
-		mark_target_updated $target now 2
-	}
+    # mark as updated if the rule has not already marked the target
+    if {![info exists ::tmk::targetCache($short)]} {
+        mark_target_updated $target now 2
+    }
 }
 
 # compare patterns and create list of all matching secondary dependencies
 proc ::tmk::get_target_secondaries { target } {
-	set ts [targetname_short $target]
-	
-	# loop over all defined rules
-	variable result [list]
-	foreach pat [array names ::tmk::secondaries] {
-		if [string match $pat $ts] {
-			set sec $::tmk::secondaries($pat)
-			# evaluate T-expression
-			set sec [expand_T_expr $pat $target $ts $sec \#0 TARGET ""]
-			set result [concat $result $sec]
-		}
-	}
-	
-	return $result
+    set ts [targetname_short $target]
+    
+    # loop over all defined rules
+    variable result [list]
+    foreach pat [array names ::tmk::secondaries] {
+        if [string match $pat $ts] {
+            set sec $::tmk::secondaries($pat)
+            # evaluate T-expression
+            set sec [expand_T_expr $pat $target $ts $sec \#0 TARGET ""]
+            set result [concat $result $sec]
+        }
+    }
+    
+    return $result
 }
 
 proc ::tmk::get_mtime { targetname } {
-	return [file mtime $targetname]
+    return [file mtime $targetname]
 }
 
 # check if a target exists in the specified directory or in the build directory
 # NOTE: function may change $targetvarname to the correct target location!
 # NOTE: returns last modification time in $modtimevarname
 proc ::tmk::does_target_exist { targetvarname modtimevarname} {
-	upvar $targetvarname target
-	upvar $modtimevarname mtime
+    upvar $targetvarname target
+    upvar $modtimevarname mtime
 
-	# first look in architecture-dependent target directory?
-	set newtarget [file join [tmk_output_dir] $target]
-	normalize_filevar newtarget
-	if [file exists $newtarget] {
-		set target $newtarget ; # !!! changes upvar !!!
-		set mtime [::tmk::get_mtime $newtarget] ; # !!! changes upvar !!!
-		return 1
-	}
-	
-	# next look in the specified directory, but in the build products location
-	set dir [file dirname $target] ;   # target base directory name
-	set tail [file tail $target]   ;   # target name excluding directory
-	set newtarget [file join $dir [tmk_output_dir] $tail] ; # new target location
-	normalize_filevar newtarget
-	if [file exists $newtarget] {
-		set target $newtarget ; # !!! changes upvar !!!
-		set mtime [::tmk::get_mtime $newtarget] ; # !!! changes upvar !!!
-		return 1
-	}
-	
-	# finally see if it exists as given
-	normalize_filevar target
-	if [file exists $target] {
-		set mtime [::tmk::get_mtime $target] ; # !!! changes upvar !!!
-		return 1
-	} else {
-		return 0
-	}
+    # first look in architecture-dependent target directory?
+    set newtarget [normalize_filename [file join [tmk_output_dir] $target]]
+    if [file exists $newtarget] {
+        set target $newtarget ; # !!! changes upvar !!!
+        set mtime [::tmk::get_mtime $newtarget] ; # !!! changes upvar !!!
+        return 1
+    }
+    
+    # next look in the specified directory, but in the build products location
+    set dir [file dirname $target] ;   # target base directory name
+    set tail [file tail $target]   ;   # target name excluding directory
+    set newtarget [normalize_filename [file join $dir [tmk_output_dir] $tail]] ; # new target location
+    if [file exists $newtarget] {
+        set target $newtarget ; # !!! changes upvar !!!
+        set mtime [::tmk::get_mtime $newtarget] ; # !!! changes upvar !!!
+        return 1
+    }
+    
+    # finally see if it exists as given
+    set target [normalize_filename $target]
+    if [file exists $target] {
+        set mtime [::tmk::get_mtime $target] ; # !!! changes upvar !!!
+        return 1
+    } else {
+        return 0
+    }
 }
 
 # remove leading/trailing spaces
@@ -280,341 +278,350 @@ proc ::tmk::does_target_exist { targetvarname modtimevarname} {
 # NOTE: function may change $targetvarname to the correct target location!
 proc ::tmk::prepare_new_target { targetvarname } {
 
-	upvar $targetvarname target
+    upvar $targetvarname target
 
-	set target [targetname_long $target]
-	set newdir [file dirname $target]
-	
-	::tmk::create_dir_recursively $newdir
+    set target [targetname_long $target]
+    set newdir [file dirname $target]
+    
+    ::tmk::create_dir_recursively $newdir
 }
 
 # recursively create all non-existent parts of a directory path
 proc ::tmk::create_dir_recursively { dirname } {
-	if [file exists $dirname] {
-		if [file isdirectory $dirname] {
-			return
-		} else {
-			exit_msg "$dirname already exists, but it is not a directory."
-		}
-	} else {
-		dbg_msg "creating directory $dirname" 2
-		file mkdir $dirname
-	}
+    if [file exists $dirname] {
+        if [file isdirectory $dirname] {
+            return
+        } else {
+            exit_msg "$dirname already exists, but it is not a directory."
+        }
+    } else {
+        dbg_msg "creating directory $dirname" 2
+        file mkdir $dirname
+    }
 }
 
 # exclude matching things from a list, write dbg message
 proc ::tmk::exclude_from_list {varName patlist what {level 1}} {
-	
-	upvar $varName list
-	set ex [lmatch $list $patlist]
-	if [llength $ex] {
-	dbg_msg "excluding \[$ex\] from $what" $level
-	set list [lminus $list $ex]
-	}
+    
+    upvar $varName list
+    set ex [lmatch $list $patlist]
+    if [llength $ex] {
+    dbg_msg "excluding \[$ex\] from $what" $level
+    set list [lminus $list $ex]
+    }
 
 }
 
 proc ::tmk::get_target_state {target {time_or_msg __ttime}} {
-	upvar $time_or_msg msg
-	set msg ""
-	set short [targetname_short $target]
-	if [info exists ::tmk::targetCache($short)] {
-		set cache $::tmk::targetCache($short)
-		set msg [lindex $cache 2]
-		return [lindex $cache 1]
-	}
-	return ""
+    upvar $time_or_msg msg
+    set msg ""
+    set short [targetname_short $target]
+    if [info exists ::tmk::targetCache($short)] {
+        set cache $::tmk::targetCache($short)
+        set msg [lindex $cache 2]
+        return [lindex $cache 1]
+    }
+    return ""
 }
 
 proc mark_target_updated {target {time now} {dbglevel 1}} {
-	if {$target != "ALWAYS_BUILD"} {
-		dbg_msg "!!! updated '$target' in [pwd] !!!" $dbglevel
-		set ::tmk::builtSomething 1
-	}
-	
-	if {$time == "now"} {set time [clock seconds]}
-	set ts [targetname_short $target]
-	dbg_msg "marking $ts as updated ([clock format $time])" $dbglevel
-	set ::tmk::targetCache($ts) [list $target "updated" $time]
-	return "updated"
+    if {$target != "ALWAYS_BUILD"} {
+        dbg_msg "!!! updated '$target' in [pwd] !!!" $dbglevel
+        set ::tmk::builtSomething 1
+    }
+    
+    if {$time == "now"} {set time [clock seconds]}
+    set ts [targetname_short $target]
+    dbg_msg "marking $ts as updated ([clock format $time])" $dbglevel
+    set ::tmk::targetCache($ts) [list $target "updated" $time]
+    return "updated"
 }
 
 proc mark_target_untouched {target {time mtime} {dbglevel 1}} {
-	if {$time == "mtime"} {
-		if {![::tmk::does_target_exist target time]} { ;# sets time upon success
-			set time 0
-		}
-	}
-	set ts [targetname_short $target]
-	dbg_msg "marking $ts as untouched ([clock format $time])" $dbglevel
-	set ::tmk::targetCache($ts) [list $target "untouched" $time]
-	return "untouched"
+    if {$time == "mtime"} {
+        if {![::tmk::does_target_exist target time]} { ;# sets time upon success
+            set time 0
+        }
+    }
+    set ts [targetname_short $target]
+    dbg_msg "marking $ts as untouched ([clock format $time])" $dbglevel
+    set ::tmk::targetCache($ts) [list $target "untouched" $time]
+    return "untouched"
 }
 
 proc mark_target_failed {target msg {dbglevel 1}} {
-	set ts [targetname_short $target]
-	dbg_msg "marking $ts as failed ($msg)" $dbglevel
-	set ::tmk::targetCache($ts) [list $target "failed" $msg]
-	return "failed"
+    set ts [targetname_short $target]
+    dbg_msg "marking $ts as failed ($msg)" $dbglevel
+    set ::tmk::targetCache($ts) [list $target "failed" $msg]
+    return "failed"
 }
 
 proc ::tmk::handle_directory_dependency {dir target} {
-	# recurse into the directory
-	if {[::tmk::handle_subdirs [list $dir] [pwd]]} {
-		log_msg "Back in directory [pwd]"
-	}
-	# see if anything was built
-	set filename [file join $dir [tmk_output_dir] __tmk_built__]
-	if {[file exists $filename]} {
-		return [mark_target_untouched $target [::tmk::get_mtime $filename]]
-	}
-	return [mark_target_untouched $target 0]
+    # recurse into the directory
+    if {[::tmk::handle_subdirs [list $dir] [pwd]]} {
+        log_msg "Back in directory [pwd]"
+    }
+    # see if anything was built
+    set filename [file join $dir [tmk_output_dir] __tmk_built__]
+    if {[file exists $filename]} {
+        return [mark_target_untouched $target [::tmk::get_mtime $filename]]
+    }
+    return [mark_target_untouched $target 0]
 }
 
 # try to recursively build target 
 # NOTE: $targetvarname may be changed in order
-#	   to point to the correct target location!
+#       to point to the correct target location!
 # NOTE: _msg will contain some error message if "failed" is returned
 # path contains the list of dependent targets that require this target
 #   in the current chain of reasoning; it is used to detect cycles
 proc ::tmk::build { targetvarname _msg {path {}} } {
-	# mark that it's now too late to call things like 'build'
-	set ::tmk::alreadyBuilding 1
+    # mark that it's now too late to call things like 'build'
+    set ::tmk::alreadyBuilding 1
 
-	# real target location
-	upvar $targetvarname target
+    # real target location
+    upvar $targetvarname target
 
-	set shorttarget [targetname_short $target]
-	dbg_msg "checking target: $shorttarget" 3
-	upvar $_msg msg
-	set msg ""
+    set shorttarget [targetname_short $target]
+    dbg_msg "checking target: $shorttarget" 3
+    upvar $_msg msg
+    set msg ""
 
-	# check cycles
-	if [lcontains $path $shorttarget] {
-		set msg "dependency loop:\n"
-		append msg "   \[[join $path " <- "] <- $shorttarget]"
-		exit_msg $msg
-	} else {
-		lappend path $shorttarget
-	}
+    # check cycles
+    if [lcontains $path $shorttarget] {
+        set msg "dependency loop:\n"
+        append msg "   \[[join $path " <- "] <- $shorttarget]"
+        exit_msg $msg
+    } else {
+        lappend path $shorttarget
+    }
 
-	# look up target in cache
-	# contents of cache: (complete target name, building result, mod time)
-	set state [::tmk::get_target_state $shorttarget ttime] 
-	if {$state != ""} {
-		set target [lindex $::tmk::targetCache($shorttarget) 0]
-		dbg_msg "cache hit ($target:$state:$ttime)" 2
-		return $state
-	}
+    # look up target in cache
+    # contents of cache: (complete target name, building result, mod time)
+    set state [::tmk::get_target_state $shorttarget ttime] 
+    if {$state != ""} {
+        set target [lindex $::tmk::targetCache($shorttarget) 0]
+        dbg_msg "cache hit ($target:$state:$ttime)" 2
+        return $state
+    }
 
-	# find target, and set $target to the real name
-	set targetExists [::tmk::does_target_exist target ttime]
+    # find target, and set $target to the real name
+    set targetExists [::tmk::does_target_exist target ttime]
 
-	# check if the target which is not yet finished 
-	# is currently being updated 
-	if {$targetExists == 0} {
-		#  create name to look in the cache
-		set lookuptarget [file join [tmk_output_dir] [file tail $target]]
-		set mytarget [targetname_short $lookuptarget]
-		if {[info exists ::tmk::targetCache($mytarget)]} {
-			if { [lindex $::tmk::targetCache($mytarget) 1] == "updated"} {
-				return 
-			}
-		}
-	}
+    # check if the target which is not yet finished 
+    # is currently being updated 
+    if {$targetExists == 0} {
+        #  create name to look in the cache
+        set lookuptarget [file join [tmk_output_dir] [file tail $target]]
+        set mytarget [targetname_short $lookuptarget]
+        if {[info exists ::tmk::targetCache($mytarget)]} {
+            if { [lindex $::tmk::targetCache($mytarget) 1] == "updated"} {
+                return 
+            }
+        }
+    }
 
-	# look if it has to be excluded
-	if {[lmatch $shorttarget $::EXCLUDE] != ""} {
-		return "exclude"
-	}
+    # look if it has to be excluded
+    if {[lmatch $shorttarget $::EXCLUDE] != ""} {
+        return "exclude"
+    }
 
-	# secondary dependencies are rule-invariant, but target-dependent
-	set targetSecondaries [::tmk::get_target_secondaries $target]
-	
-	::tmk::exclude_from_list targetSecondaries $::EXCLUDE "$shorttarget's secondary dependencies"
-	set targetSecondaries [lmap $targetSecondaries {[list [targetname_short $ITEM]]}]
-	
-	# there may be a number of rules for the same target, 
-	#   so try them until one can be executed (e.g. all prerequisites exist)
-	set rules [::tmk::get_target_rules $shorttarget]
+    # secondary dependencies are rule-invariant, but target-dependent
+    set targetSecondaries [::tmk::get_target_secondaries $target]
+    
+    ::tmk::exclude_from_list targetSecondaries $::EXCLUDE "$shorttarget's secondary dependencies"
+    set targetSecondaries [lmap $targetSecondaries {list [targetname_short $ITEM]}]
+    
+    # there may be a number of rules for the same target, 
+    #   so try them until one can be executed (e.g. all prerequisites exist)
+    set rules [::tmk::get_target_rules $shorttarget]
 
-	# trivial reject
-	if {[llength $rules] == 0} {
-		# see if target is a directory
-		set potentialDirs {}
-		if {[file pathtype $shorttarget] == "absolute"} {
-			lappend potentialDirs $shorttarget
-		} else {
-			lappend potentialDirs [file join [pwd] $shorttarget]
-			lappend potentialDirs [file join $::PROJROOT $shorttarget]
-		}
+    # trivial reject
+    if {[llength $rules] == 0} {
+        # see if target is a directory
+        set potentialDirs {}
+        if {[file pathtype $shorttarget] == "absolute"} {
+            lappend potentialDirs $shorttarget
+        } else {
+            lappend potentialDirs [file join [pwd] $shorttarget]
+            lappend potentialDirs [file join $::PROJROOT $shorttarget]
+        }
 
-		foreach dir $potentialDirs {
-			if {[file isdirectory $dir] && [file exists [file join $dir TMakefile]]} {
-				return [::tmk::handle_directory_dependency $dir $shorttarget]
-			}
-		}
-		
-		if { [::tmk::does_target_exist target ttime] } { 
-			set msg "no rule how to make ${target}, but it exists."
-			dbg_msg $msg 2
-			return [mark_target_untouched $target $ttime 2]
-		} else {
-			set msg "no rule how to make non-existing ${target}"
-			dbg_msg $msg 1
-			return "ignore"
-		}
-	}
+        foreach dir $potentialDirs {
+            if {[file isdirectory $dir] && [file exists [file join $dir TMakefile]]} {
+                if {$::tmk::hasThreadPool} {
+                    ::tmk::wait_all_threads ;# Need to finish current jobs since we are changing working directory
+                }
+                return [::tmk::handle_directory_dependency $dir $shorttarget]
+            }
+        }
+        
+        if { [::tmk::does_target_exist target ttime] } { 
+            set msg "no rule how to make ${target}, but it exists."
+            dbg_msg $msg 2
+            return [mark_target_untouched $target $ttime 2]
+        } else {
+            set msg "no rule how to make non-existing ${target}"
+            dbg_msg $msg 1
+            return "ignore"
+        }
+    }
 
-	dbg_msg "potential rules for $shorttarget: $rules" 2 
+    dbg_msg "potential rules for $shorttarget: $rules" 2 
 
-	# try all rules 
-	set ruleFailureLog {} ;# here we collect all failed rules
-	foreach rule $rules {
-		set pattern [::tmk::rule_pattern $rule]
-		set sources [::tmk::rule_sources $rule]
+    # try all rules 
+    set ruleFailureLog {} ;# here we collect all failed rules
+    foreach rule $rules {
+        set pattern [::tmk::rule_pattern $rule]
+        set sources [::tmk::rule_sources $rule]
 
-		# try to build all rule source files and secondary dependencies;
-		# register the file mod times on that occasion
-		set targetNeedsUpdate [expr ! $targetExists]
-		set usedPrimaries {} ;# this will contain the correct locations
-		set usedSecondaries	{} 
+        # try to build all rule source files and secondary dependencies;
+        # register the file mod times on that occasion
+        set targetNeedsUpdate [expr ! $targetExists]
+        set usedPrimaries {} ;# this will contain the correct locations
+        set usedSecondaries    {} 
 
-		# expand T-expressions in $sources
-		set targetPrimaries [::tmk::expand_T_expr $pattern $target $shorttarget $sources \#0 TARGET ""]
-		# unexpand target names for the sake of the cache
-		set targetPrimaries [lmap $targetPrimaries {[targetname_short $ITEM]}]
-		set numPrimaries [llength $targetPrimaries]
+        # expand T-expressions in $sources
+        set targetPrimaries [::tmk::expand_T_expr $pattern $target $shorttarget $sources \#0 TARGET ""]
+        # unexpand target names for the sake of the cache
+        set targetPrimaries [lmap $targetPrimaries {targetname_short $ITEM}]
+        set numPrimaries [llength $targetPrimaries]
 
-		# remove excluded targets (short names!)
-		::tmk::exclude_from_list targetPrimaries $::EXCLUDE "$shorttarget's primary dependencies"
-		set numUsedPrimaries [llength $targetPrimaries]
+        # remove excluded targets (short names!)
+        ::tmk::exclude_from_list targetPrimaries $::EXCLUDE "$shorttarget's primary dependencies"
+        set numUsedPrimaries [llength $targetPrimaries]
 
-		set allSources [concat $targetPrimaries "__XXX__" $targetSecondaries]
+        set allSources [concat $targetPrimaries "__XXX__" $targetSecondaries]
 
-		dbg_msg "$target <- \[$targetPrimaries\], \[[llength $targetSecondaries] secondary dep.\]"
-		dbg_msg "$target <- \[$targetPrimaries\], \[$targetSecondaries\]" 2
+        dbg_msg "$target <- \[$targetPrimaries\], \[[llength $targetSecondaries] secondary dep.\]"
+        dbg_msg "$target <- \[$targetPrimaries\], \[$targetSecondaries\]" 2
 
-		# check if all dependency files are there and check their mtime
-		set isSecondary 0
-		set tryNextRule 0
-		foreach src $allSources {
-			# switch from primaries to secondaries?!
-			if { $src == "__XXX__" } {
-				# special: check if there are no primary dependencies left
-				# because of exclusion ; in that case skip this target
-				if {($numUsedPrimaries == 0) && ($numPrimaries > 0)} {
-					dbg_msg "skipping $shorttarget due to exclusion (no source files left)"
-					# process with next rule???
-					return "exclude"
-				}
+        # check if all dependency files are there and check their mtime
+        set isSecondary 0
+        set tryNextRule 0
+        if {$::tmk::hasThreadPool} {
+            ::tmk::start_threaded
+        }
+        foreach src $allSources {
+            # switch from primaries to secondaries?!
+            if { $src == "__XXX__" } {
+                # special: check if there are no primary dependencies left
+                # because of exclusion ; in that case skip this target
+                if {($numUsedPrimaries == 0) && ($numPrimaries > 0)} {
+                    dbg_msg "skipping $shorttarget due to exclusion (no source files left)"
+                    # process with next rule???
+                    return "exclude"
+                }
 
-				set isSecondary 1
-				continue 
-			}
+                set isSecondary 1
+                continue 
+            }
 
-			# try to build prerequisites
-			normalize_filevar src 
-			set result [::tmk::build src msg $path]
+            # try to build prerequisites
+            set src [normalize_filename $src]
+            set result [::tmk::build src msg $path]
 
-			# special case: skip if source has been excluded for some reason 
-			if {$result == "exclude"} {
-				if {!$isSecondary} {
-					incr numUsedPrimaries -1
-				}
-				continue
-			} 
+            # special case: skip if source has been excluded for some reason 
+            if {$result == "exclude"} {
+                if {!$isSecondary} {
+                    incr numUsedPrimaries -1
+                }
+                continue
+            } 
 
-			# add to the list of actually used source / dep files
-			if $isSecondary {
-				lappend usedSecondaries $src
-			} else {
-				lappend usedPrimaries $src
-			}
+            # add to the list of actually used source / dep files
+            if $isSecondary {
+                lappend usedSecondaries $src
+            } else {
+                lappend usedPrimaries $src
+            }
 
-			if { $result == "failed" } {
-				# if a secondary dependency fails, this is FATAL!
-				#  (does not only affect this rule, but all rules)
-				if $isSecondary { 
-					set err "cannot build $target because $src is missing."
-					set dname [filename_dep [file rootname $target]]
-					if [file exists $dname] {
-						log_msg "$src is missing: invalid dependency file $dname?"
-					}
-					exit_msg $err
-				}
+            if { $result == "failed" } {
+                # if a secondary dependency fails, this is FATAL!
+                #  (does not only affect this rule, but all rules)
+                if $isSecondary { 
+                    set err "cannot build $target because $src is missing."
+                    set dname [filename_dep [file rootname $target]]
+                    if [file exists $dname] {
+                        log_msg "$src is missing: invalid dependency file $dname?"
+                    }
+                    exit_msg $err
+                }
 
-				# TODO directory dependencies
-				# if a target does not already exist, and has no rule, then maybe it is a directory
-				# try to recurse tmk into that directory; if not then we fail
-				# if tmk in that directory changes anything, then we need to rebuild
+                # TODO directory dependencies
+                # if a target does not already exist, and has no rule, then maybe it is a directory
+                # try to recurse tmk into that directory; if not then we fail
+                # if tmk in that directory changes anything, then we need to rebuild
 
-				# if a primary dependency fails, well ... try the next rule
-				append ruleFailureLog "- could not build $shorttarget from $src:\n"
-				append ruleFailureLog "  $msg\n"
-				set tryNextRule 1
-				break
-			} else { 
-				# if we've updated a target, we don't need to check its mtime
-				# (this also works for virtual targets which get never built)
-				if { $result == "updated" } {
-					dbg_msg "$target must be built because $src has been updated"
-					set targetNeedsUpdate 1
-				}
+                # if a primary dependency fails, well ... try the next rule
+                append ruleFailureLog "- could not build $shorttarget from $src:\n"
+                append ruleFailureLog "  $msg\n"
+                set tryNextRule 1
+                break
+            } else { 
+                # if we've updated a target, we don't need to check its mtime
+                # (this also works for virtual targets which get never built)
+                if { $result == "updated" } {
+                    dbg_msg "$target must be built because $src has been updated"
+                    set targetNeedsUpdate 1
+                }
 
-				# if we haven't detected that we need an update so far...
-				if { !$targetNeedsUpdate } {
-					set stime [lindex $::tmk::targetCache([targetname_short $src]) 2]
-					if { $stime > $ttime } {
-						set targetNeedsUpdate 1
-						dbg_msg "$target must be built because $src is newer"
-						dbg_msg "  (target: $ttime ([clock format $ttime]) src: $stime ([clock format $stime]))"
-					}
-				}
-			}
-		}
+                # if we haven't detected that we need an update so far...
+                if { !$targetNeedsUpdate } {
+                    set stime [lindex $::tmk::targetCache([targetname_short $src]) 2]
+                    if { $stime > $ttime } {
+                        set targetNeedsUpdate 1
+                        dbg_msg "$target must be built because $src is newer"
+                        dbg_msg "  (target: $ttime ([clock format $ttime]) src: $stime ([clock format $stime]))"
+                    }
+                }
+            }
+        }
+        if {$::tmk::hasThreadPool} {
+            ::tmk::stop_threaded
+        }
 
-		if {[llength $allSources] > 1} {
-			dbg_msg "back to processing $shorttarget" 2
-		}
+        if {[llength $allSources] > 1} {
+            dbg_msg "back to processing $shorttarget" 2
+        }
 
-		# if no source files are specified (only __XXX__), 
-		#   build unconditionally
-		if { ([llength $allSources] == 1) && (! $targetExists) } {	
-			::tmk::prepare_new_target target ; # this may change $target!
-			dbg_msg "$target gets built because it has no prerequisites and does not exist"
-			return [::tmk::exec_target_code $pattern $target [::tmk::rule_cmd $rule] $shorttarget {}]
-		}
+        # if no source files are specified (only __XXX__), 
+        #   build unconditionally
+        if { ([llength $allSources] == 1) && (! $targetExists) } {    
+            ::tmk::prepare_new_target target ; # this may change $target!
+            dbg_msg "$target gets built because it has no prerequisites and does not exist"
+            return [::tmk::exec_target_code $pattern $target [::tmk::rule_cmd $rule] $shorttarget {}]
+        }
 
-		# successfully matched a rule -> apply or leave target untouched
-		if { ! $tryNextRule } {
-			dbg_msg "$target <- \[$usedPrimaries\], \[$usedSecondaries\]" 2
+        # successfully matched a rule -> apply or leave target untouched
+        if { ! $tryNextRule } {
+            dbg_msg "$target <- \[$usedPrimaries\], \[$usedSecondaries\]" 2
 
-			if {!$targetExists} {
-				dbg_msg "$target must be built because it does not exist."
-			}
+            if {!$targetExists} {
+                dbg_msg "$target must be built because it does not exist."
+            }
 
-			if { $targetNeedsUpdate } {
-				# apply commands to build the target
-				::tmk::prepare_new_target target ; # this may change $target!
+            if { $targetNeedsUpdate } {
+                # apply commands to build the target
+                ::tmk::prepare_new_target target ; # this may change $target!
 
-				return [::tmk::exec_target_code $pattern $target [::tmk::rule_cmd $rule] $shorttarget $usedPrimaries]
-			} else {
-				dbg_msg "nothing to be done for $target"
-				return [mark_target_untouched $target $ttime 2]
-			}
-		}
-	}
+                return [::tmk::exec_target_code $pattern $target [::tmk::rule_cmd $rule] $shorttarget $usedPrimaries]
+            } else {
+                dbg_msg "nothing to be done for $target"
+                return [mark_target_untouched $target $ttime 2]
+            }
+        }
+    }
 
-	if [::tmk::does_target_exist target ttime] {
-		dbg_msg "leaving $target untouched because no rule applies"
-		return [mark_target_untouched $target $ttime 2]
-	} else {
-		set msg "no rule applicable for building $target"
-		if {[string trim $ruleFailureLog] != ""} {
-			append msg "\n$ruleFailureLog"
-		}
-		dbg_msg $msg
-		return [mark_target_failed $target $msg 2]
-	}	
+    if [::tmk::does_target_exist target ttime] {
+        dbg_msg "leaving $target untouched because no rule applies"
+        return [mark_target_untouched $target $ttime 2]
+    } else {
+        set msg "no rule applicable for building $target"
+        if {[string trim $ruleFailureLog] != ""} {
+            append msg "\n$ruleFailureLog"
+        }
+        dbg_msg $msg
+        return [mark_target_failed $target $msg 2]
+    }    
 }

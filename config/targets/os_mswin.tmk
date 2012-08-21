@@ -1,35 +1,33 @@
 config proc filename_shlib  { shortname } { return "${shortname}.dll" }
 config proc filename_lib { shortname } { return "${shortname}.lib" }
+config proc filename_exe { shortname } { return "${shortname}.exe" }
+
+config set java::COMPILER    javac
 
 config set swig::EXCLUDE_LANGS {}
 
-config set swig::java::CFLAGS {-I/cross/win32/include/java-include -I/cross/win32/include/java-include/win32 -D_JNI_IMPLEMENTATION_}
-config set swig::java::LDFLAGS {-Wl,--kill-at}
-config proc swig::java::libname {basename} {
-	return $basename.dll
-}
-
-config set swig::python::CFLAGS -I/cross/win32/include/python-include
 config set swig::python::LDFLAGS {}
-config set swig::python::LIBPATH {/cross/win32/lib/python-libs}
-config set swig::python::LIBS {python25}
 config proc swig::python::libname {basename} {
-	return _$basename.pyd
+    return _$basename.pyd
 }
 
-config set swig::csharp::CFLAGS {}
-config set swig::csharp::LDFLAGS {-mthreads -Wl,--add-stdcall-alias}
+config set swig::python::CFLAGS -I/cross/distrix3/mingw64/include/python-include
+config set swig::python::CXXFLAGS -I/cross/distrix3/mingw64/include/python-include
+config set swig::python::LIBPATH /cross/distrix3/mingw64/lib/python-libs
+config set swig::python::LIBS {python25}
 
-config proc swig::csharp::libname {basename} {
-	return $basename.dll
+config when_target arch!=x86_64 {
+    config set cxx::COMPILER mingw
+    config set c::COMPILER   mingw
+    config set res::COMPILER mingw
 }
 
-config set cxx::COMPILER  mingw
-config set c::COMPILER    mingw
-config set res::COMPILER  mingw
+config when_target arch=x86_64 {
+    config set cxx::COMPILER  mingw64
+    config set c::COMPILER    mingw64
+    config set res::COMPILER  mingw64
+}
 
 namespace eval random {
-	config set LIBS { advapi32 }
+    config set LIBS { advapi32 }
 }
-
-config proc filename_exe { shortname } { return "${shortname}.exe" }

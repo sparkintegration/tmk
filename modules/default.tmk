@@ -14,8 +14,8 @@ module grep
 proc ::read_dependencies {target depfile} {
     # check if file is there
     if {![file readable $depfile]} {
-	dbg_msg "no dependency file $depfile for $target" 
-	return "ALWAYS_BUILD"
+    dbg_msg "no dependency file $depfile for $target" 
+    return "ALWAYS_BUILD"
     }
     dbg_msg "reading dependency file $depfile for $target" 
     set txt {}
@@ -23,56 +23,56 @@ proc ::read_dependencies {target depfile} {
 
     # process each line separately 
     set txt [split $txt "\n"]
-	
+    
     # join lines separeted by '\'
     set newtxt {}
     set actline ""
     foreach line $txt {
-	set l [expr [string length $line] - 1]
-	set c [string index $line $l]
-	if { $c == "\\" } {
-	    set actline "$actline [string range $line 0 [expr $l - 1]]"
-	} else {
-	    append actline $line
-	    lappend newtxt $actline
-	    set actline ""
-	}
+    set l [expr [string length $line] - 1]
+    set c [string index $line $l]
+    if { $c == "\\" } {
+        set actline "$actline [string range $line 0 [expr $l - 1]]"
+    } else {
+        append actline $line
+        lappend newtxt $actline
+        set actline ""
+    }
     }
     if { $actline != "" } {
-	dbg_msg "warning: something's strange in $depfile"
-	append newtxt $actline
+    dbg_msg "warning: something's strange in $depfile"
+    append newtxt $actline
     }
     
     # convert path (from Win '\' style to '/' unix style)
     if {$::OSCLASS == "Windows"} { 
-	regsub -all \\\\ $newtxt / newtxt
+    regsub -all \\\\ $newtxt / newtxt
     }
 
     set result {}
     foreach line $newtxt {
-	
-	# remove everything behind a comment
-	set p [string first "\#" $line]
-	if { $p != -1 } {
-	    set line [string range $line 0 [expr $p - 1]]
-	}
-	# line has format "target: dep1 dep2 dep3 dep4 ..."
-	if [llength $line] {
-	    set targ [lindex $line 0]
-	    set lastchar [expr [string length $targ] - 1]
-	    if {"[string index $targ $lastchar]" != ":"} {
-		exit_msg "unexpected format in $depfile:\n  \[$line\]"
-	    } 
-	    
-	    
-	    set targ [string range $targ 0 [expr $lastchar - 1]]
-	    if [string compare [targetname_short $targ]\
-		    [targetname_short $target]] {
-		dbg_msg "warning: target in $depfile is $targ, not $target"
-	    } else {
-		eval lappend result [lrange $line 1 end]
-	    }
-	}
+    
+    # remove everything behind a comment
+    set p [string first "\#" $line]
+    if { $p != -1 } {
+        set line [string range $line 0 [expr $p - 1]]
+    }
+    # line has format "target: dep1 dep2 dep3 dep4 ..."
+    if [llength $line] {
+        set targ [lindex $line 0]
+        set lastchar [expr [string length $targ] - 1]
+        if {"[string index $targ $lastchar]" != ":"} {
+        exit_msg "unexpected format in $depfile:\n  \[$line\]"
+        } 
+        
+        
+        set targ [string range $targ 0 [expr $lastchar - 1]]
+        if [string compare [targetname_short $targ]\
+            [targetname_short $target]] {
+        dbg_msg "warning: target in $depfile is $targ, not $target"
+        } else {
+        eval lappend result [lrange $line 1 end]
+        }
+    }
     }
 
     return $result
@@ -100,9 +100,9 @@ proc ::remove_projroot {path} {
     global PROJROOT PROJ_LOCATIONS
 
     foreach root [concat $PROJROOT $PROJ_LOCATIONS] {
-	if { [string first $root $path] == 0 } {
-	    return [string range $path [expr [string length $root] + 1] end]
-	}
+    if { [string first $root $path] == 0 } {
+        return [string range $path [expr [string length $root] + 1] end]
+    }
     }
     log_msg "warning: could not remove project root dir from \[$path\]"
     log_msg "         (tried: [concat $PROJROOT $PROJ_LOCATIONS])"
@@ -117,58 +117,58 @@ proc ::remove_projroot {path} {
 proc ::copy_files {target sources} {
 
     foreach src $sources {
-	
-	# only target dir specified, or dir + filename?
-	if {[llength $target] == 1} {
-	    set dir $target
-	    set file [file tail $src]
-	} else {
-	    set dir [lindex $target 0]
-	    set file [lindex $target 1]
-	}
+    
+    # only target dir specified, or dir + filename?
+    if {[llength $target] == 1} {
+        set dir $target
+        set file [file tail $src]
+    } else {
+        set dir [lindex $target 0]
+        set file [lindex $target 1]
+    }
 
-	# relative path -> look up in PROJ_LOCATIONS and PROJROOT
-	if {[file pathtype $src] == "relative"} {
+    # relative path -> look up in PROJ_LOCATIONS and PROJROOT
+    if {[file pathtype $src] == "relative"} {
 
-	    set rule {
-		if {$SRC == {}} {
-		    exit_msg "could not find file(s) ${src} in project path"
-		}
-		puts "copying $SRC -> $TARGET"
-		file copy -force -- $SRC $TARGET
-	    }
-	    regsub -all {\$\{src\}} $rule $src rule
-	    build [target $dir/$file "\[find_linked_file \
+        set rule {
+        if {$SRC == {}} {
+            exit_msg "could not find file(s) ${src} in project path"
+        }
+        puts "copying $SRC -> $TARGET"
+        file copy -force -- $SRC $TARGET
+        }
+        regsub -all {\$\{src\}} $rule $src rule
+        build [target $dir/$file "\[find_linked_file \
                     \[find_proj_file $src\]\]" $rule]
-	} else {
+    } else {
 
-	    build [target $dir/$file "\[find_linked_file $src\]" {
-		puts "copying $SRC -> $TARGET"
-		file copy -force -- $SRC $TARGET
-	    }]
+        build [target $dir/$file "\[find_linked_file $src\]" {
+        puts "copying $SRC -> $TARGET"
+        file copy -force -- $SRC $TARGET
+        }]
 
-	}
-	
+    }
+    
     }
 }
 
 # find the 'real' file behind a link
 proc ::find_linked_file {link} {
     if {$link == {}} {
-	return {}
+        return {}
     }
     if {[file type $link] == "link"} {
-	set f [file readlink $link]
-	if {[file pathtype $f] != "absolute"} {
-	    set f [file join [file dirname $link] $f]
-	}
-	return [find_linked_file $f]
+        set f [file readlink $link]
+        if {[file pathtype $f] != "absolute"} {
+            set f [file join [file dirname $link] $f]
+        }
+        return [find_linked_file $f]
     } else {
-	if [file exists $link] {
-	    return $link
-	} else {
-	    exit_msg "link points to a non-existing file: $link"
-	}
+        if [file exists $link] {
+            return $link
+        } else {
+            exit_msg "link points to a non-existing file: $link"
+        }
     }
 }
 
@@ -180,16 +180,21 @@ proc ::find_linked_file {link} {
 eval_after {
 
     # cleaning up -------------------------------------------------------------
-	target clean ALWAYS_BUILD {
-	    echo file delete -force -- [tmk_output_dir] $CLEAN_PATTERNS
-	}
-	
+    target clean ALWAYS_BUILD {
+        log_msg "Cleaning..."
+        remove_output_dirs
+        if { [llength $::CLEAN_PATTERNS] > 0 } {
+            set files [eval glob -nocomplain $::CLEAN_PATTERNS]
+            foreach f $files {
+                echo file delete -force -- $f
+            }
+        }
+    }
+    
     # pseudo target for updating dependencies; 
     # the language modules must define prerequisites to this for actually 
     #   updating the dependency files
     target depend ALWAYS_BUILD {
-	dbg_msg "dependency update finished for $SUBDIR"
+        dbg_msg "dependency update finished for $SUBDIR"
     }
-
 }
-

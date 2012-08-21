@@ -1,0 +1,91 @@
+# Title: NaturalDocs Module
+
+# Variable: NATURALDOCS
+#   The 'NaturalDocs' executable to build the documentation with.
+set_ifndef NATURALDOCS  /cross/NaturalDocs/NaturalDocs
+# Variable: FLAGS
+#   Extra flags to pass to ND.
+set_ifndef FLAGS        {}
+# Variable: EXCLUDES
+#   Directories of $SOURCE_DIR to exclude from the documetation.
+set_ifndef EXCLUDES     {}
+# Variable: IMAGES_DIR
+#   The directory to search for images in (defaults to .).
+set_ifndef IMAGES_DIR   "."
+# Variable: STYLES
+#   The names of the stylesheets to use.
+set_ifndef STYLES       {}
+# Variable: AUTO
+#   Automatically run NaturalDocs.
+set_ifndef AUTO         1
+# Variable: OUTPUT_NAME
+#   Name to use for the output directory.  Defaults to "API"
+set_ifndef OUTPUT_NAME  "API"
+
+# alias nd::PROJLIBS to dep::MODULE_PROJLIBS(nd)
+upvar #0 ::dep::MODULE_PROJLIBS(nd) PROJLIBS
+
+module { vcs }
+
+proc generate_flags {} {
+    set result $nd::FLAGS
+    lconcat result [list --project [file join [tmk_output_dir] ${nd::OUTPUT_NAME}_project]]
+    lconcat result [list --images $nd::IMAGES_DIR]
+    if { [llength $nd::STYLES] > 0 } {
+        lappend result --style
+        foreach style $nd::STYLES {
+            lappend result $style
+        }
+    }
+    foreach excl $nd::EXCLUDES {
+        lconcat result [list --exclude-source $excl]
+    }
+    return $result
+}
+
+proc handle_project_conf {proj_conf name} {
+    set tgts {}
+    if { $proj_conf == "" } {
+        if { [file exists $name] } {
+            set proj_conf $name
+        }
+    }
+    if { $proj_conf != "" } {
+        set tgt [file join ${nd::OUTPUT_NAME}_project $name]
+        target $tgt $proj_conf {
+            file mkdir [file dirname $TARGET]
+            set version [vcs::get_version]
+            set revision [vcs::get_revision]
+            set year [clock format [clock seconds] -format %Y]
+            read_file $SRC conf
+            set conf_rep [subst -nocommands -nobackslashes $conf]
+            write_file $TARGET conf_rep
+        }
+        lappend tgts $tgt
+    }
+    return $tgts
+}
+
+proc make_docs {{src_dir .} {topics ""} {menu ""} {languages ""}} {
+    set deps {}
+    lconcat deps [nd::handle_project_conf $topics Topics.txt]
+    lconcat deps [nd::handle_project_conf $menu Menu.txt]
+    lconcat deps [nd::handle_project_conf $languages Languages.txt]
+
+    set flags [join [nd::generate_flags] " "]
+    set rule {
+        file mkdir \$TARGET
+        set cmd [list cmd $nd::NATURALDOCS $flags --source $src_dir --output HTML \$TARGET]
+        uplevel \#0 \$cmd
+    }
+    target $nd::OUTPUT_NAME $deps [subst -nocommands $rule]
+    return $nd::OUTPUT_NAME
+}
+
+eval_after {
+    if $nd::AUTO {
+        if { ![tmk::cleaning] } {
+            build [nd::make_docs]
+        }
+    }
+}

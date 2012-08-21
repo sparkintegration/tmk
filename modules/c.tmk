@@ -1,7 +1,7 @@
 # -*-Mode: tcl -*-
 
-#	The C module inherits its behaviour from the <C++ Module>.
-#	It sets $c::PATTERNS to `{ *.c }`.
+#    The C module inherits its behaviour from the <C++ Module>.
+#    It sets $c::PATTERNS to `{ *.c }`.
 
 # read the C++ module code
 set txt {}
@@ -11,8 +11,8 @@ read_file $cxx_module txt
 
 # replace a few things
 regsub -all \
-	{set_ifndef PATTERNS {[^\}]*}} $txt \
-	{set_ifndef PATTERNS {*.c}} txt
+    {set_ifndef PATTERNS {[^\}]*}} $txt \
+    {set_ifndef PATTERNS {*.c}} txt
 regsub -all cxx $txt c txt
 
 # execute modified C++ module

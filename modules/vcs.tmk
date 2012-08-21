@@ -1,13 +1,20 @@
-#	Title: VCS Module
+#    Title: VCS Module
 #
 # =========================================================================
 #
-# 		TMK module for interacting with version control systems
+#         TMK module for interacting with version control systems
 # =========================================================================
 
-#	Variable: TYPE
-#		The type of vcs to use
-set_ifndef TYPE	"svn"
+#    Variable: TYPE
+#        The type of vcs to use
+set_ifndef TYPE    "svn"
+
+# This should be updated to point at whatever the next release will be
+set_ifndef DEFAULT_VERSION "3.0.0"
+
+set_ifndef REPOSITORY ""
+
+set_ifndef EXPORT_TMP "/var/tmp/exportrepos"
 
 set_ifndef BUILD_DIR [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
 
@@ -17,68 +24,225 @@ array set __oldRevisions {}
 array set __revisions {}
 
 proc __get_revisions {} {
-	set revFileName [file join [tmk_output_dir] __vcs_revisions__]
-	if [file exists $revFileName] {
-		::tmk::source $revFileName
-	}
+    set revFileName [file join [tmk_output_dir] __vcs_revisions__]
+    if [file exists $revFileName] {
+        ::tmk::source $revFileName
+    }
 }
 
 proc __write_revisions {} {
-	set revFile [open [file join [tmk_output_dir] __vcs_revisions__] w]
-	puts $revFile "array set ::vcs::__oldRevisions {[array get ::vcs::__revisions]}"
-	close $revFile
+    set revFile [open [file join [tmk_output_dir] __vcs_revisions__] w]
+    puts $revFile "array set ::vcs::__oldRevisions {[array get ::vcs::__revisions]}"
+    close $revFile
 }
 
 if {!$__gotRevisions} {
-	__get_revisions
+    __get_revisions
 }
 
 proc updated_any {} {
-	return $::vcs::__updated_any
+    return $::vcs::__updated_any
+}
+
+proc get_git_root {} {
+    set curDir [pwd]
+    while {[file isdirectory $curDir]} {
+        if {[file isdirectory [file join $curDir ".git"]]} {
+            return $curDir
+        }
+        set curDir [file dirname $curDir]
+    }
 }
 
 proc export {repo_path local_path include_filter} {
-	set path $vcs::REPOSITORY$repo_path
-	set outputDir [file join $vcs::BUILD_DIR $local_path]
-	set rev [get_update_revision $path]
-	if {[info exists ::vcs::__oldRevisions($path)] && $::vcs::__oldRevisions($path) >= $rev && [file exists $outputDir]} {
-		set ::vcs::__revisions($path) $::vcs::__oldRevisions($path)
-		log_msg "No new revision for $path"
-		return 0
-	}
-	
-	file mkdir $outputDir
-	cmd $vcs::TYPE export -r $rev --force $path $outputDir
-	foreach filter $include_filter {
-		cmd find $outputDir -type f -not -name "$filter" -delete
-	}
-	
-	set rev [get_revision $path]
-	set ::vcs::__revisions($path) $rev
-	
-	__write_revisions
-	set ::vcs::__updated_any 1
-	return 1
+    set_vcs_type
+
+    if { $vcs::VCS_TYPE == "svn" } {
+
+        set path $vcs::REPOSITORY$repo_path
+        set outputDir [file join $vcs::BUILD_DIR $local_path]
+        set rev [get_update_revision $path]
+        if {[info exists ::vcs::__oldRevisions($path)] && $::vcs::__oldRevisions($path) >= $rev && [file exists $outputDir]} {
+            set ::vcs::__revisions($path) $::vcs::__oldRevisions($path)
+            log_msg "No new revision for $path"
+            return 0
+        }
+
+        file mkdir $outputDir
+        cmd $vcs::TYPE export -r $rev --force $path $outputDir
+        foreach filter $include_filter {
+            cmd find $outputDir -type f -not -name "$filter" -delete
+        }
+
+        set rev [get_revision $path]
+        set ::vcs::__revisions($path) $rev
+
+        __write_revisions
+        set ::vcs::__updated_any 1
+        return 1
+    } elseif { $vcs::VCS_TYPE == "git" } {
+        set curDir [pwd]
+        set outputDir [file join $vcs::BUILD_DIR $local_path]
+        puts "Exporting to $outputDir"
+
+        if {![file isdirectory $outputDir]} {
+            file mkdir $outputDir
+        }
+
+        if {![file isdirectory $vcs::EXPORT_TMP]} {
+            file mkdir $vcs::EXPORT_TMP
+        }
+
+        set git_root [get_git_root]
+        set git_name [regsub -all "/" $git_root "_"]
+
+        set tmpRepo [file join $vcs::EXPORT_TMP $git_name]
+        puts "export repo = $tmpRepo"
+
+        set current_branch [get_branch .]
+        # Check if the tmp repo is up to date
+        set current_revision [get_git_revision]
+
+
+        # need to clone this repo to a temporary location
+        if {![file isdirectory $tmpRepo]} {
+            cmd git clone --depth 1 $git_root $tmpRepo
+        }
+
+        cd $tmpRepo
+        # Extra check to make sure we don't reset the actual repo
+        if {[pwd] == $curDir} {
+            puts "Not in export repo: [pwd] == $curDir"
+            return 1
+        }
+
+        cmd git reset --hard HEAD
+        cmd git fetch
+        cmd git checkout origin/$current_branch
+        cmd git pull origin $current_branch
+
+        set tmp_revision [get_git_revision]
+        if { $tmp_revision != $current_revision } {
+            puts "export repo not up to date, need to reclone"
+            # TODO: Clone and check out the branch
+            # In theory however, this should never happen
+            return -code 1 -errorcode 1 -errorinfo "unimplemented"
+        }
+
+        if {[file isdirectory $repo_path]} {
+            append repo_path "/"
+        }
+        cmd rsync -av --delete $repo_path $outputDir
+
+        foreach filter $include_filter {
+            cmd find $outputDir -type f -not -name "$filter" -delete
+        }
+
+        cd $curDir
+    }
 }
 
-proc get_revision {path} {
-	set rev [exec svn info $path | grep Revision | awk {{ print $2; }}]
-	return $rev
+proc set_vcs_type {} {
+    # Not sure why I have to do this here, but if I don't it complains about the vcs namespace not existing
+    namespace eval vcs {}
+    if { [catch {exec svn info}] == 0 } {
+        set vcs::VCS_TYPE "svn"
+    } elseif { [catch {exec git branch}] == 0 } {
+        set vcs::VCS_TYPE "git"
+    }
 }
 
+proc get_git_revision {} {
+    set rev [exec git rev-parse --short HEAD]
+
+    return "${rev}"
+}
+
+proc get_revision {{path "."}} {
+    set_vcs_type
+
+    if { $vcs::VCS_TYPE == "svn" } {
+        set rev [exec svn info $path | grep Revision | awk {{ print $2; }}]
+    } elseif { $vcs::VCS_TYPE == "git" } {
+        return [get_git_revision]
+    }
+    return $rev
+}
+
+proc get_version {} {
+    set branch [get_branch .]
+    set commit_count [string trim [exec git log --pretty=oneline | wc -l]]
+
+    if { [catch {exec git describe}] == 0 } {
+        set tag_info [exec git describe]
+        # Strip out the hash if it's there
+        set tag_info [regsub "\\-g\\w+" $tag_info ""]
+        set tag_info [regsub "r\\d+" $tag_info ""]
+
+        # If the current branch looks like a version
+        if [regexp "^\\d+\\.\\d+\\.\\d+" $branch] {
+            # And the branch name manages the git describe output to a certain extent
+            if [regexp $branch $tag_info] {
+                # Use the describe output so we get the -x to show how far we are from the tag
+                return $tag_info
+            }
+
+            # But if the describe output isn't accurately representing the version (for example if
+            # this branch descends from another versioned branch which does have a tag) just use the branch
+            # name plus the commit count
+            return "$branch-$commit_count"
+        }
+
+        return $tag_info
+    } elseif { [catch {exec git branch}] == 0 } {
+        # If the current branch looks like a version
+        if [regexp "^\\d+\\.\\d+\\.\\d+" $branch] {
+            return "$branch-$commit_count"
+        } else {
+            return "$vcs::DEFAULT_VERSION-$commit_count"
+        }
+    }
+}
+
+# version formatted for Windows file versions
+proc get_quad_version {} {
+    set version [get_version]
+
+    if { [regexp {^\d+\.\d+\.\d+(\.\d+)?} $version full minor] } {
+        if { $minor != "" } {
+            return ${full}
+        }
+        return ${full}.0
+    }
+    return "0.0.0.0"
+}
+
+# Note: This isn't used anywhere at the moment
 proc get_update_revision {path} {
-	set rev [exec svn info $path | grep {Last Changed Rev} | awk {{ print $4; }}]
-	return $rev
+    set rev [exec svn info $path | grep {Last Changed Rev} | awk {{ print $4; }}]
+    return $rev
 }
 
 proc get_branch {path} {
-	set base_url [exec svn info $path | grep {Repository Root} | awk {{ print $3; }}]
-	set path_url [exec svn info $path | grep {URL} | awk {{ print $2; }}]
-	set branch_elements [split [string map [list $base_url ""] $path_url] "/"]
-	if {[lindex $branch_elements 2] eq "trunk"} {
-		set branch [join [lrange $branch_elements 1 2] "/"]
-	} else {
-		set branch [join [lrange $branch_elements 1 3] "/"]
-	}
-	return "$branch/"
+    set_vcs_type
+
+    if { $vcs::VCS_TYPE == "git" } {
+        set lines [split [exec git branch] "\n"]
+        foreach line $lines {
+            if [regexp "^\\* " $line] {
+                set branch [regsub "^\\* " $line ""]
+            }
+        }
+        return $branch
+    } else {
+        set base_url [exec svn info $path | grep {Repository Root} | awk {{ print $3; }}]
+        set path_url [exec svn info $path | grep {URL} | awk {{ print $2; }}]
+        set branch_elements [split [string map [list $base_url ""] $path_url] "/"]
+        if {[lindex $branch_elements 2] eq "trunk"} {
+            set branch [join [lrange $branch_elements 1 2] "/"]
+        } else {
+            set branch [join [lrange $branch_elements 1 3] "/"]
+        }
+        return "$branch/"
+    }
 }

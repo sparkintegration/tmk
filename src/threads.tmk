@@ -1,0 +1,91 @@
+set ::tmk::__hasThreads 0
+catch { set ::tmk::__hasThreads [package require Thread] }
+
+set ::tmk::hasThreadPool 0
+
+proc ::tmk::init_threaded {threads} {
+    if {$::tmk::__hasThreads != 0} {
+        set ::tmk::threadPool [tpool::create -maxworkers $threads]
+        set ::tmk::hasThreadPool 1
+    }
+    
+    set ::tmk::__current_jobs [list]
+    set ::tmk::__job_stack [list]
+}
+
+proc ::tmk::start_threaded {} {
+    lappend ::tmk::__job_stack $::tmk::__current_jobs
+    set ::tmk::__current_jobs [list]
+}
+
+proc ::tmk::__waitjobs {joblist} {
+    set len [llength $joblist]
+    if {$len > 1} {
+        puts "Waiting for $len jobs..."
+    }
+    foreach job $joblist {
+        tpool::wait $::tmk::threadPool $job
+        if {[catch {tpool::get $::tmk::threadPool $job} m]} {
+            exit_msg $m
+        }
+    }
+}
+
+proc ::tmk::wait_all_threads {} {
+    if {$::tmk::hasThreadPool} {
+        set stack [list]
+        foreach joblist $::tmk::__job_stack {
+            ::tmk::__waitjobs $joblist
+            lappend stack [list]
+        }
+        set ::tmk::__job_stack $stack
+        
+        ::tmk::__waitjobs $::tmk::__current_jobs
+        set ::tmk::__current_jobs [list]
+    }
+}
+
+proc ::tmk::stop_threaded {} {
+    if {$::tmk::hasThreadPool} {
+        ::tmk::__waitjobs $::tmk::__current_jobs
+    }
+    set ::tmk::__current_jobs [lindex $::tmk::__job_stack end]
+    set ::tmk::__job_stack [lrange $::tmk::__job_stack 0 end-1]
+}
+
+proc cmd_thread {args} {
+    if $::tmk::doLog {
+        foreach cmd $args {
+            if {[lindex $cmd 0] == "exec"} {
+                puts [lrange $cmd 1 end]
+            } else {
+                puts $cmd
+            }
+        }
+        flush stdout
+    }
+
+    if {$::tmk::hasThreadPool} {
+        set rule {
+            foreach cmd {$args} {
+                if {[catch {if {1} \$cmd} m] && ![string equal \$::errorCode NONE]} {
+                    error "Error while executing <\$cmd>: \$m"
+                }
+            }
+        }
+        lappend ::tmk::__current_jobs [tpool::post $::tmk::threadPool [subst -nocommands $rule]]
+    } else {
+        foreach cmd $args {
+            if {[catch {if {1} $cmd} m] && ![string equal $::errorCode NONE]} {
+                exit_msg $m
+            }
+        }
+    }
+}
+
+proc ::tmk::destroy_threaded {} {
+    if {$::tmk::hasThreadPool} {
+        ::tmk::__waitjobs $::tmk::__current_jobs
+        while {[tpool::release $::tmk::threadPool]} {}
+    }
+}

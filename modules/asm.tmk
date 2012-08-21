@@ -1,83 +1,136 @@
-# -*-Mode: tcl -*-
+#    Title: Assembly Language Module
 
-module link
+if {![info exists COMPILER]} {
+    puts "Note: cannot use ASM module since no assembler is configured for this OS/architecture."
+    module link
+    return
+}
 
-#	Variable: ASM
-#		Set the assembler executable
-set_ifndef ASM    arm-elf-gcc
-
-#	Variable: FLAGS
-#		Set the assembler flags
-set_ifndef FLAGS  "-c"
-
-#	Variable: SUFFIX
-#		Set the suffix of assembly files
-set_ifndef SUFFIX .S
-
-#	Variable: DETECT
-#		Automatically detect assembly files
-set_ifndef DETECT 1
+# standard codelevel-independent compiler flags 
+set flags ""
+regsub -all {\.} $flags {} flags
+eval lappend FLAGS $flags
 
 proc fix_define {name} {
-	regsub -all {[+]} $name "x" name
-	regsub -all {[^a-zA-Z0-9_]} $name "_" name
-	return $name
+    regsub -all {[+]} $name "x" name
+    regsub -all {[^a-zA-Z0-9_]} $name "_" name
+    return $name
 }
 
 set DEFINES(HOST_OS_[fix_define [string toupper $OS]]) 1
 set DEFINES(TARGET_OS_[fix_define [string toupper $::TARGET_OS]]) 1
 set DEFINES(TARGET_ARCH_[fix_define [string toupper $::TARGET_ARCH]]) 1
 set DEFINES(TARGET_BOARD_[fix_define [string toupper $::TARGET_BOARD]]) 1
+set DEFINES(COMPILER_[fix_define [string toupper $COMPILER]]) 1
 
-#	Variable: PROJINCS
-#		Additional include directories
+#    Variable: FLAGS
+#        Set the assembler flags
+set_ifndef FLAGS {}
+
+#    Variable: PATTERNS
+#        File suffixes that mark assembly code files
+set_ifndef PATTERNS {*.s *.S}
+
+#    Variable: DETECT
+#        Automatically detect assembly files
+set_ifndef DETECT 1
+
+#    Variable: OPTIONS
+#        Default meta compiler options for compiling object files
+set_ifndef OPTIONS {}
+
+#    Variable: PROJINCS
+#        Additional project-relative include directories
 set_ifndef PROJINCS {}
 
+#    Variable: INCPATH
+#        Additional include directories
+set_ifndef INCPATH {}
+
+if {![array exists KEYED_FLAGS]} {
+    array set KEYED_FLAGS {}
+}
+
+module { c link }
+
+# by default, the c module also implements the linker
+set_ifndef ::link::LINKER c::${COMPILER}
+
+# return the actual chosen assembler 
+proc get_assembler {} {
+    return ${::asm::COMPILER}
+}
+
+# return complete list of assembler flags (compiler-specific and general)
 proc default_flags {} {
     global ::asm::FLAGS 
-	set result $::asm::FLAGS
-	foreach {key value} [array get ::asm::DEFINES] {
-		lappend result "-D$key=$value"
-	}
+    set result $::asm::FLAGS
+    foreach {key value} [array get ::asm::DEFINES] {
+        lappend result "-D${key}=${value}"
+    }
+    foreach dir $::asm::PROJINCS {
+        foreach root [concat $::PROJROOT $::PROJ_LOCATIONS] {
+            set path [file nativename [file join $root $dir]]
+            if { [file isdirectory $path] } {
+                lappend result -I${path}
+            } else {
+                exit_msg "!!! Invalid PROJINC: ${path} !!!"
+            }
+        }
+    }
     return $result
 }
 
-proc make_obj {asmfile {objfile {}}} {
-    if {$objfile == {}} {
-		set objfile [filename_obj [file rootname $asmfile]]
+# assemble source file into an object file and handle dependencies
+#   returns target name, e.g. to be used in build [make_obj ...]
+proc make_obj {src {obj {}} {flags_expr undef} {opt_expr undef} } {
+
+    # default values
+    if {$obj == {}}             {set obj [filename_obj [file rootname $src]]}
+    if {$flags_expr == "undef"} {set flags_expr {[::asm::default_flags]}}
+    if {$opt_expr == "undef"}   {set opt_expr   {$::asm::OPTIONS}}
+
+    set rule {
+        set opt $opt_expr
+        if {[catch {::asm::[::asm::get_assembler]::assemble_obj \$TARGET \$SRC $flags_expr \$opt} result]} {
+            file delete -force -- \$TARGET
+            return -code error "\${result}."
+        }
     }
-    target $objfile $asmfile {
-		eval cmd [list $asm::ASM] [::asm::default_flags] [list -o $TARGET $SRC]
-    }
-    build $objfile
-    lappend ::link::LIB_OBJ $objfile
+    target $obj $src [subst -nocommands $rule]
+    lappend ::link::LIB_OBJ $obj
+
+    return $obj
 }
     
 eval_after {
-    if $asm::DETECT {
-		foreach file [glob -nocomplain *$SUFFIX] {
-	    	asm::make_obj $file
-		}
+    # call compiler's init function (if existant and not already called)
+    if {[info commands ::asm::${asm::COMPILER}::init] != {}} {
+        if {[info vars ::asm::${asm::COMPILER}::IS_INITIALIZED] == {}} {
+            ::asm::${asm::COMPILER}::init
+            variable ::asm::${asm::COMPILER}::IS_INITIALIZED "1"
+        }
     }
 
-	foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
-		lappend FLAGS -I[file nativename $dir]
+    # add all possible project root directories as standard include paths
+    foreach dir [concat $::PROJROOT $::PROJ_LOCATIONS] {
+        lappend FLAGS -I[file nativename $dir]
     }
 
-	foreach dir $PROJINCS {
-		foreach root [concat $::PROJROOT $::PROJ_LOCATIONS] {
-			set path [file nativename [file join $root $dir]]
-			if { [file isdirectory $path] } {
-				lappend FLAGS -I${path}
-			} else {
-				exit_msg "!!! Invalid PROJINC: ${path} !!!"
-			}
-		}
-	}
-	
-	eval_after {
-		foreach attr [array names ::ATTRS] {
-			set ::asm::DEFINES(ATTR_[::asm::fix_define [string toupper $attr]]) $::ATTRS($attr)
-		}
-	}
+    # auto-detect assembly source files by file patterns?
+    if $::asm::DETECT {
+        set obj_names ""
+        set src_names ""
+        foreach pat $::asm::PATTERNS {
+            foreach src [glob -nocomplain $pat] {
+                # re-check for case sensitive handling
+                # Win2k is case-preserving but not case-sensitive
+                if { [file extension $src] == [file extension $pat] } {
+                    ::asm::make_obj $src
+                    lappend obj_names [filename_obj [file rootname $src]]
+                    lappend src_names $src
+                }
+            }
+        }
+    }
 }

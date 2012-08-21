@@ -43,3 +43,6 @@ syntax: tmk ?options...? ?--? ?targets...?
                       TMakefiles. Set to 1 if the '=<value>' part is omitted.
     -DC <var>=<value> set C preprocessor symbol <var> to <value> before reading the
                       TMakefiles. Set to 1 if the '=<value>' part is omitted.
+    -threads <num>    Set the number of threads to be used for compilation (default is 1)
+    -say              Read certain critical information out loud, if possible
+    -beep             Play a notification sound when the build succeeds or fails

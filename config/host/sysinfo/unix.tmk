@@ -3,7 +3,7 @@ dbg_msg "reading [info script]." 1
 set ::OS      $::tcl_platform(os)
 
 if {[string tolower $::OS] == "darwin"} {
-	set ::OS "osx"
+    set ::OS "osx"
 }
 
 set ::OSVER   $::tcl_platform(osVersion)

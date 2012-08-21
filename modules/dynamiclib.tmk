@@ -1,8 +1,6 @@
-add_premodule buildSettings/building_dl
-
 set link::MAKE_LIB 0
 set link::MAKE_SHLIB 1
 
 proc ::setLibName {name} {
-	set ::link::LIBNAME $name
+    set ::link::LIBNAME $name
 }

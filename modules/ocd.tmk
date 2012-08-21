@@ -1,0 +1,353 @@
+#    Title: On-Chip-Debugger Module
+#
+# =========================================================================
+#
+#         TMK module for OpenOCD functionality (flashing and debugging)
+# =========================================================================
+
+#    Variable: ENABLED
+#        Enables the OpenOCD commands
+set_ifndef ENABLED        0
+
+#    Variable: INTERFACE
+#        The type of debug interface/programmer, from the supported OpenOCD list
+set_ifndef INTERFACE    ""
+
+#    Variable: TARGET
+#        The type of debug/programming target, from the supported OpenOCD list
+set_ifndef TARGET        ""
+
+#    Variable: BOARD
+#        The board configuration to use, from the supported OpenOCD list
+set_ifndef BOARD        ""
+
+#    Variable: DEBUG_LEVEL
+#        The OpenOCD debug level to use when performing actions
+set_ifndef DEBUG_LEVEL    2
+
+#    Variable: SEQUENCE
+#        The set of OpenOCD commands to perform
+set_ifndef SEQUENCE        {}
+
+set deps {}
+
+proc cleanup {} {
+    puts $::ocd::sock "shutdown"
+    after 100
+    exec kill $::ocd::pid
+}
+
+proc read_response {} {
+    set resp ""
+    
+    while { 1 } {
+        set resp "${resp}[read $::ocd::sock 1]"
+        # puts "`${resp}'"
+        if { [regexp {> $} $resp] } {
+            if { [regexp {\b\b> $} $resp] } {
+                set resp ""
+                continue
+            }
+            return $resp
+        }
+    }
+}
+
+proc flash_write_image { image addr } {
+    log_msg "Writing ${image} to ${addr}..."
+    puts $::ocd::sock "flash write_image ${image} ${addr}"
+    flush $::ocd::sock
+    set resp [read_response]
+    set result [regexp {wrote (\d+) bytes from file .+ in \d+.\d+s \(\d+.\d+ kb/s\)} $resp str size]
+    if { $result } {
+        return [expr $size > 0]
+    }
+    return 0
+}
+
+proc verify_image { image addr } {
+    log_msg "Verifying ${image} at ${addr}..."
+    puts $::ocd::sock "verify_image ${image} ${addr}"
+    flush $::ocd::sock
+    set resp [read_response]
+    return [regexp {verified \d+ bytes in \d+.\d+s \(\d+.\d+ kb/s\)} $resp]
+}
+
+proc flash_lock { bank start end {on_off on} } {
+    if { $on_off == on } {
+        log_msg "Locking bank ${bank}, sectors ${start} to ${end}..."
+        set exp "{set protection for sectors ${start} through ${end} on flash bank ${bank}}"
+    } else {
+        log_msg "Unlocking bank ${bank}, sectors ${start} to ${end}..."
+        set exp "{cleared protection for sectors ${start} through ${end} on flash bank ${bank}}"
+    }
+    puts $::ocd::sock "flash protect ${bank} ${start} ${end} ${on_off}"
+    flush $::ocd::sock
+    set resp [read_response]
+    return [regexp $exp $resp]
+}
+
+proc flash_erase { addr length } {
+    log_msg "Erasing ${bytes} at ${addr}..."
+    puts $::ocd::sock "flash erase_address ${addr} ${length}"
+    flush $::ocd::sock
+    set resp [read_response]
+    return [regexp {erased address 0x[[:xdigit:]]+ \(length \d+\) in \d+.\d+s \(\d+.\d+ kb/s\)} $resp]
+}
+
+proc flash_probe { bank } {
+    log_msg "Probing flash bank ${bank}..."
+    puts $::ocd::sock "flash probe ${bank}"
+    flush $::ocd::sock
+    set resp [read_response]
+    after 2000
+    return [regexp {flash '[^']+' found at 0x[[:xdigit:]]+} $resp]
+}
+
+proc processor_halt {} {
+    log_msg "Halting processor..."
+    puts $::ocd::sock "poll"
+    flush $::ocd::sock
+    set resp [read_response]
+    if { [regexp {target state: halted} $resp] } {
+        return 1
+    }
+    
+    puts $::ocd::sock "halt"
+    flush $::ocd::sock
+    set resp [read_response]
+    return [regexp {target state: halted} $resp]
+}
+
+proc processor_reset { state } {
+    log_msg "Resetting processor..."
+    puts $::ocd::sock "reset ${state}"
+    flush $::ocd::sock
+    read_response
+    return 1
+}
+
+proc halt {} {
+    if { !$::ocd::ENABLED } {
+        return
+    }
+
+    set tgt "[clock clicks]_halted"
+    set rule {
+        if { ![ocd::processor_halt] } {
+            ocd::cleanup
+            exit_msg "Failed to halt processor"
+        }
+        
+        set out "Halted processor"
+        write_file \$TARGET out
+    }
+    target $tgt ALWAYS_BUILD [subst -nocommands $rule]
+    depend $tgt $::ocd::deps
+    build $tgt
+    
+    lappend ::ocd::deps $tgt
+}
+
+proc reset { {state run} } {
+    if { !$::ocd::ENABLED } {
+        return
+    }
+
+    set tgt "[clock clicks]_reset_${state}"
+    set rule {
+        if { ![ocd::processor_reset $state] } {
+            ocd::cleanup
+            exit_msg "Failed to reset processor"
+        }
+        
+        set out "Reset processor"
+        write_file \$TARGET out
+    }
+    target $tgt ALWAYS_BUILD [subst -nocommands $rule]
+    depend $tgt $::ocd::deps
+    build $tgt
+    
+    lappend ::ocd::deps $tgt
+}
+
+proc flash { file_name region {dep {}} } {
+    if { !$::ocd::ENABLED } {
+        return
+    }
+    set addr [lindex $region 0]
+    
+    set tgt "${file_name}_${addr}_flashed"
+    set file_name [targetname_long $file_name]
+    set rule {
+        if { [ocd::verify_image \$SRC $addr] } {
+            log_msg "Image already downloaded"
+        } else {
+            if { ![ocd::flash_write_image \$SRC $addr] } {
+                ocd::cleanup
+                exit_msg "Failed to write image"
+            }
+            if { ![ocd::verify_image \$SRC $addr] } {
+                ocd::cleanup
+                exit_msg "Image verification failed"
+            }
+        }
+        
+        set out "Wrote \${SRC} to ${addr}"
+        write_file \$TARGET out
+    }
+    target $tgt $file_name [subst -nocommands $rule]
+    lconcat ::ocd::deps $dep
+    depend $tgt $::ocd::deps
+    build $tgt
+    
+    lappend ::ocd::deps $tgt
+}
+
+proc probe { banks } {
+    if { !$::ocd::ENABLED } {
+        return
+    }
+    
+    set tgt "[join $banks _]_probed"
+    set rule {
+        set banks [list $banks]
+        
+        foreach bank \$banks {
+            if { ![ocd::flash_probe \$bank] } {
+                ocd::cleanup
+                exit_msg "Failed to probe flash bank \${bank}"
+            }
+        }
+        
+        set out "Probed flash banks [join \$banks ", "]"
+        write_file \$TARGET out
+    }
+    target $tgt ALWAYS_BUILD [subst -nocommands $rule]
+    depend $tgt $::ocd::deps
+    build $tgt
+    
+    lappend ::ocd::deps $tgt
+}
+
+proc erase { region } {
+    if { !$::ocd::ENABLED } {
+        return
+    }
+    set addr [lindex $region 0]
+    set length [lindex $region 1]
+    
+    set tgt "${file_name}_${addr}_${length}_erased"
+    set rule {
+        if { ![ocd::flash_erase $addr $length] } {
+            ocd::cleanup
+            exit_msg "Failed to erase flash"
+        }
+        
+        set out "Erased ${length} bytes at ${addr}"
+        write_file \$TARGET out
+    }
+    target $tgt ALWAYS_BUILD [subst -nocommands $rule]
+    depend $tgt $::ocd::deps
+    build $tgt
+    
+    lappend ::ocd::deps $tgt
+}
+
+proc lock { bank start end } {
+    if { !$::ocd::ENABLED } {
+        return
+    }
+    
+    set tgt "${bank}_${start}_${end}_locked"
+    set rule {
+        if { ![ocd::flash_lock $bank $start $end on] } {
+            ocd::cleanup
+            exit_msg "Failed to lock flash region(s)"
+        }
+        
+        set out "Locked flash bank ${bank} regions ${start} to ${end}"
+        write_file \$TARGET out
+    }
+    target $tgt ALWAYS_BUILD [subst -nocommands $rule]
+    depend $tgt $::ocd::deps
+    build $tgt
+    
+    lappend ::ocd::deps $tgt
+}
+
+proc unlock { bank start end } {
+    if { !$::ocd::ENABLED } {
+        return
+    }
+    
+    set tgt "${bank}_${start}_${end}_unlocked"
+    set rule {
+        if { ![ocd::flash_lock $bank $start $end off] } {
+            ocd::cleanup
+            exit_msg "Failed to unlock flash region(s)"
+        }
+        
+        set out "Unlocked flash bank ${bank} regions ${start} to ${end}"
+        write_file \$TARGET out
+    }
+    target $tgt ALWAYS_BUILD [subst -nocommands $rule]
+    depend $tgt $::ocd::deps
+    build $tgt
+    
+    lappend ::ocd::deps $tgt
+}
+
+proc start {} {
+        log_msg "Starting OpenOCD..."
+    
+    set conf_file [targetname_long ocd.cfg]
+    set conf "source \[find trunk.cfg\]
+source \[find interface/${::ocd::INTERFACE}.cfg\]
+source \[find board/${::ocd::BOARD}.cfg\]"
+    file mkdir [file dirname $conf_file]
+    write_file $conf_file conf
+    
+    if { [catch {set ::ocd::pid [exec openocd -d${::ocd::DEBUG_LEVEL} -f${conf_file} >& [targetname_long ocd.log] &]} err] } {
+        exit_msg "Failed to start OpenOCD: ${err}"
+    }
+    
+    set count 10
+    while { [catch {set ::ocd::sock [socket localhost 4444]} err] && $count > 0 } {
+        after 1000
+        incr count -1
+    }
+    if { $count == 0 } {
+        exec kill $::ocd::pid
+        exit_msg "Failed to open socket: ${err}"
+    }
+    
+    # read banner
+    read_response
+    log_msg "OpenOCD started."
+}
+
+proc finish {} {
+    if { !$::ocd::ENABLED } {
+        return
+    }
+    
+    set tgt "openocd_finished"
+    target $tgt ALWAYS_BUILD { ocd::cleanup }
+    depend $tgt $::ocd::deps
+    build $tgt
+}
+
+eval_after {
+    if { $::ocd::ENABLED } {
+        if { ![tmk::cleaning] } {
+            if { $::ocd::SEQUENCE != {} } {
+                ocd::start
+                ocd::reset init
+                ocd::halt
+                eval $::ocd::SEQUENCE
+                ocd::finish
+            }
+        }
+    }
+}

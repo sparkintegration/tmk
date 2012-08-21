@@ -1,6 +1,0 @@
-lappend cxx::FLAGS "-I$::PROJROOT/Libs/ftgl"
-lappend cxx::FLAGS "-I/usr/X11/include"
-lappend cxx::FLAGS "-I/usr/X11/include/freetype2"
-
-lappend ::link::LIBPATH "/usr/X11/lib"
-lappend ::link::SYSLIBS "freetype"

@@ -3,96 +3,196 @@ set_ifndef BUILD_DIR [file join $::PROJROOT $::SUBDIR [tmk_output_dir]]
 set_ifndef PACKAGES {}
 
 eval_after {
-	foreach package_array $deb::PACKAGES {
-		upvar \#0 $package_array package
-		
-		if { ![info exists package(MAINTAINER)] } {
-			set package(MAINTAINER) "Spark Integration <support@sparkintegration.com>"
-		}
-		
-		if { ![info exists package(VERSION)] } {
-			set package(VERSION) "1.0"
-		}
-		
-		if { ![info exists package(ARCHITECTURE)]} {
-			set package(ARCHITECTURE) "i386"
-		}
-		
-		if { ![info exists package(DEPENDS)] } {
-			set package(DEPENDS) ""
-		}
-		
-		if { ![info exists package(DESCRIPTION)] } {
-			set package(DESCRIPTION) $package(PACKAGE_NAME)
-		}
-		
-		if { ![info exists package(SECTION)]} {
-			set package(SECTION) "devel"
-		}
-		
-		if { ![info exists package(TMK_DEPENDENCIES)]} {
-			set package(TMK_DEPENDENCIES) ""
-		}
-	
-		log_msg "Making deb file for $package(PACKAGE_NAME)"
-		set debDir [file join $deb::BUILD_DIR "deb" $package(PACKAGE_NAME)]
-		set controlDir [file join $debDir "DEBIAN"]
-		set outputDeb [file join $deb::BUILD_DIR "$package(PACKAGE_NAME)-$package(VERSION)_$package(ARCHITECTURE).deb"]
-	
-		set output "Package: $package(PACKAGE_NAME)\n"
-		set output "${output}Version: $package(VERSION)\n"
-		set output "${output}Section: $package(SECTION)\n"
-		set output "${output}Maintainer: $package(MAINTAINER)\n"
-		set output "${output}Architecture: $package(ARCHITECTURE)\n"
-		set output "${output}Depends: $package(DEPENDS)\n"
-		set output "${output}Description: $package(DESCRIPTION)\n"
-		log_msg "$output"
-		
-		proc dostuff {} {
-			
-		}
-		
-		set rule {
-			file delete -force $debDir
-	
-			file mkdir $controlDir
-			set controlFile [file join $controlDir "control"]
-			set things {$package(FILES)}
-			set perms {$package(FILE_PERMS)}
+    foreach package_array $deb::PACKAGES {
+        upvar \#0 $package_array package
 
-			set out [open \$controlFile "w"]
-			puts \$out "$output"
-			close \$out
-			
-			foreach thing \$things {
-				puts \$thing
-				set path [lindex \$thing 0]
-				set localFile [lindex \$thing 1]
-				set localPath [file join $debDir \$path]
-				file mkdir [file join $debDir \$path]
-				if {\$localFile != ""} {
-					file copy -force \$localFile \$localPath
-				}
-			}
-			
-			foreach thing \$perms {
-				set path [lindex \$thing 0]
-				set localPath [file join $debDir \$path]
-				set mod [lindex \$thing 1]
-				set owner [lindex \$thing 2]
-				if {\$mod != 0} {
-					cmd chmod -R \$mod \$localPath 
-				}
-				if {\$owner != ""} {
-					cmd sudo chown -R \$owner \$localPath 
-				}
-			}
+        if { ![info exists package(MAINTAINER)] } {
+            set package(MAINTAINER) "Spark Integration <support@sparkintegration.com>"
+        }
 
-			cmd dpkg --build $debDir $outputDeb
-		}
-		if { ![tmk::cleaning] } {
-			target $package(PACKAGE_NAME) $package(TMK_DEPENDENCIES) [subst -nocommands $rule]
-			build $package(PACKAGE_NAME)
-		}
-	}
-}	
+        if { ![info exists package(VERSION)] } {
+            set package(VERSION) "1.0"
+        }
+
+        if { ![info exists package(ARCHITECTURE)]} {
+            set package(ARCHITECTURE) "i386"
+        }
+
+        if { ![info exists package(PRIORITY)] } {
+            set package(PRIORITY) ""
+        }
+
+        if { ![info exists package(DESCRIPTION)] } {
+            set package(DESCRIPTION) $package(PACKAGE_NAME)
+        }
+
+        if { ![info exists package(SECTION)]} {
+            set package(SECTION) "devel"
+        }
+
+        if { ![info exists package(POSTINST)]} {
+            set package(POSTINST) ""
+        }
+
+        if { ![info exists package(PREINST)]} {
+            set package(PREINST) ""
+        }
+
+        if { ![info exists package(PRERM)]} {
+            set package(PRERM) ""
+        }
+
+        if { ![info exists package(POSTRM)]} {
+            set package(POSTRM) ""
+        }
+
+        if { ![info exists package(TEMPLATES)]} {
+            set package(TEMPLATES) ""
+        }
+
+        if { ![info exists package(CONFIG)]} {
+            set package(CONFIG) ""
+        }
+
+        if { ![info exists package(TMK_DEPENDENCIES)]} {
+            set package(TMK_DEPENDENCIES) ""
+        }
+
+        if { ![info exists package(FILE_PERMS)]} {
+            set package(FILE_PERMS) {}
+        }
+
+        if { ![info exists package(FILES)]} {
+            set package(FILES) {}
+        }
+
+        if { ![info exists package(EVAL_FILES)]} {
+            set package(EVAL_FILES) {}
+        }
+
+        if { ![info exists package(CONF_FILES)]} {
+            set package(CONF_FILES) {}
+        }
+
+        log_msg "Making deb file for $package(PACKAGE_NAME)"
+        set debDir [file join $deb::BUILD_DIR "deb" $package(PACKAGE_NAME)]
+        set controlDir [file join $debDir "DEBIAN"]
+        set outputDeb [file join $deb::BUILD_DIR "$package(PACKAGE_NAME)-$package(VERSION)_$package(ARCHITECTURE).deb"]
+
+        set output "Package: $package(PACKAGE_NAME)\n"
+        set output "${output}Version: $package(VERSION)\n"
+        set output "${output}Section: $package(SECTION)\n"
+        set output "${output}Maintainer: $package(MAINTAINER)\n"
+        set output "${output}Architecture: $package(ARCHITECTURE)\n"
+        if { [info exists package(DEPENDS)] } {
+            set output "${output}Depends: [join $package(DEPENDS) {, }]\n"
+        }
+        if { [info exists package(PREDEPENDS)] } {
+            set output "${output}Pre-Depends: $package(PREDEPENDS)\n"
+        }
+        set output "${output}Priority: $package(PRIORITY)\n"
+        set output "${output}Description: $package(DESCRIPTION)\n"
+
+        set rule {
+            file delete -force $debDir
+            file mkdir $controlDir
+            file attributes $controlDir -permissions 0755
+
+            set controlFile [file join $controlDir "control"]
+            set confListFile [file join $controlDir "conffiles"]
+            set things {$package(FILES)}
+            set perms {$package(FILE_PERMS)}
+            set eval_files {$package(EVAL_FILES)}
+
+            # Setup postinstall and pre-removal scripts if necessary
+            if { "$package(POSTINST)" != "" } {
+                file copy -force $package(POSTINST) [file join $controlDir "postinst"]
+                file attributes [file join $controlDir "postinst"] -permissions 0755
+            }
+
+            if { "$package(PRERM)" != "" } {
+                file copy -force $package(PRERM) [file join $controlDir "prerm"]
+                file attributes [file join $controlDir "prerm"] -permissions 0755
+            }
+
+            if { "$package(POSTRM)" != "" } {
+                file copy -force $package(POSTRM) [file join $controlDir "postrm"]
+                file attributes [file join $controlDir "postrm"] -permissions 0755
+            }
+
+            if { "$package(PREINST)" != "" } {
+                file copy -force $package(PREINST) [file join $controlDir "preinst"]
+                file attributes [file join $controlDir "preinst"] -permissions 0755
+            }
+
+            if { "$package(TEMPLATES)" != "" } {
+                file copy -force $package(TEMPLATES) [file join $controlDir "templates"]
+            }
+
+            if { "$package(CONFIG)" != "" } {
+                file copy -force $package(CONFIG) [file join $controlDir "config"]
+            }
+
+            # Copies all of the static files to the build directory
+            foreach thing \$things {
+                set path [lindex \$thing 0]
+                set localFile [lindex \$thing 1]
+                set localPath [file join $debDir \$path]
+                file mkdir [file join $debDir \$path]
+                if {\$localFile != ""} {
+                    cmd cp -Rfv \$localFile \$localPath
+                }
+            }
+
+            # Copies all of the dynamic file specifications to the build directory
+            # This allows the deb description to include file specifiers like "glob *.h" which
+            # will be evaluated just before building the deb package (and after the dependencies
+            # have been built)
+            foreach thing \$eval_files {
+                set path [lindex \$thing 0]
+                set localFile [eval [lindex \$thing 1]]
+                set localPath [file join $debDir \$path]
+                file mkdir [file join $debDir \$path]
+                if {\$localFile != ""} {
+                    foreach filename [split \$localFile] {
+                        cmd cp -Rfv \$filename \$localPath
+                    }
+                }
+            }
+
+            # Sets permissions and ownership on any files or directories that need them
+            foreach thing \$perms {
+                set path [lindex \$thing 0]
+                set localPath [file join $debDir \$path]
+                set mod [lindex \$thing 1]
+                set owner [lindex \$thing 2]
+                if {\$mod != 0} {
+                    cmd chmod -R \$mod \$localPath
+                }
+                if {\$owner != ""} {
+                    cmd sudo chown -R \$owner \$localPath
+                }
+            }
+
+            set size [lindex [split [exec du -ks "$debDir"]] 0]
+            set control "${output}Installed-Size: \$size\n"
+            write_file \$controlFile control
+            log_msg "Package Metadata:\n\$control"
+
+            set conf_files { $package(CONF_FILES) }
+            if { [llength \$conf_files] > 0 } {
+                set conflist [join \$conf_files "\n"]
+                write_file \$confListFile conflist
+            }
+
+            set oldpath \$::env(PATH)
+            set ::env(PATH) "\$oldpath:/cross/distrix3/osx/dpkg/bin"
+            cmd dpkg --build $debDir $outputDeb
+            set ::env(PATH) \$oldpath
+        }
+        if { ![tmk::cleaning] } {
+            target $package(PACKAGE_NAME) $package(TMK_DEPENDENCIES) [subst -nocommands $rule]
+            build $package(PACKAGE_NAME)
+        }
+    }
+}

@@ -1,0 +1,4 @@
+config set c::COMPILER    android_gcc
+config set cxx::COMPILER  android_gcc
+config set asm::COMPILER  android_gcc
+config set java::COMPILER javac
