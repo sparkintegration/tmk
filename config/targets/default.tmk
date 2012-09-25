@@ -87,3 +87,8 @@ namespace eval event {
     config set DEPEND { openssl socket time zlib }
     config set LIBS { event_spark }
 }
+
+namespace eval mongoc {
+    config set DEFS { MONGO_HAVE_STDINT=1 }
+    config set LIBS { mongoc_spark }
+}
