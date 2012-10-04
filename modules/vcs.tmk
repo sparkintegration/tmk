@@ -193,7 +193,11 @@ proc get_version {} {
             return "$branch-$commit_count"
         }
 
-        return $tag_info
+        if [regexp "^\\d+\\.\\d+\\.\\d+" $tag_info] {
+            return $tag_info
+        } else {
+            return "$vcs::DEFAULT_VERSION-$commit_count"
+        }
     } elseif { [catch {exec git branch}] == 0 } {
         # If the current branch looks like a version
         if [regexp "^\\d+\\.\\d+\\.\\d+" $branch] {
