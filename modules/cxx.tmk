@@ -239,6 +239,7 @@ proc default_flags {} {
     eval upvar \\\#0 ::cxx::[::cxx::get_compiler]::FLAGS compflags
     set result [concat $::cxx::FLAGS $compflags]
     foreach {key value} [array get ::cxx::DEFINES] {
+        lremove result "-D$key=*"
         lappend result "-D$key=$value"
     }
     foreach {key value} [array get ::cxx::KEYED_FLAGS] {
