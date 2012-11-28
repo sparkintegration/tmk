@@ -50,6 +50,10 @@ eval_after {
             set package(REQUIRES) ""
         }
 
+        if { ![info exists package(PROVIDES)]} {
+            set package(PROVIDES) ""
+        }
+
         if { ![info exists package(DESCRIPTION)]} {
             set package(DESCRIPTION) ""
         }
@@ -100,6 +104,9 @@ eval_after {
         set output "${output}URL: $package(URL)\n"
         foreach thing $package(REQUIRES) {
             set output "${output}Requires: $thing\n"
+        }
+        foreach thing $package(PROVIDES) {
+            set output "${output}Provides: $thing\n"
         }
         set output "${output}Description: $package(DESCRIPTION)\n"
         foreach thing $package(POST) {
@@ -157,6 +164,7 @@ eval_after {
             set spec "\${spec}AutoReqProv: no\n\n"
 
             set requires {$package(REQUIRES)}
+            set provides {$package(PROVIDES)}
             set things {$package(FILES)}
             set eval_files {$package(EVAL_FILES)}
             set architecture {$package(ARCH)}
@@ -169,6 +177,11 @@ eval_after {
                 set spec "\${spec}Requires: \$thing\n"
             }
             set spec "\${spec}\n"
+
+            foreach thing \$provides {
+                set spec "\${spec}Provides: \$thing\n"
+            }
+            set spec "\${spec}\n" 
 
             set spec "\${spec}%description\n"
             set spec "\${spec}$package(DESCRIPTION)\n"
