@@ -415,3 +415,27 @@ proc rglob {pattern {dir ""}} {
     
     return [lsort $files]
 }
+
+# Procedure: latest_file
+#   Find the newest file that matches a glob pattern
+#
+# Parameters:
+#   pattern - The glob pattern to search for
+#
+# Return:
+#   The name of the newest matching file, or an empty string if no files
+#   were found
+proc latest_file { pattern } {
+    set files [glob -nocomplain -- $pattern]
+    set lts 0
+    set latest ""
+    foreach f $files {
+        set fts [clock scan [file mtime $f]]
+        if { $fts > $lts } {
+            set latest $f
+            set lts $fts
+        }
+    }
+
+    return $latest
+}
