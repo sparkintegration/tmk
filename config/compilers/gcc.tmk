@@ -9,6 +9,8 @@ switch $__module {
     "default"    {log_msg "warning: gcc is not configured for module $__module" }
 }
 
+config set SCAN_MODE $__module
+
 catch {config set AR ${gcc_bin_prefix}ar}
 config set STRIP ${gcc_bin_prefix}strip
 
@@ -49,6 +51,23 @@ config set METAOPT(64bit)   "-n64"
 # with gcc we don't need an external makedepend
 config set EXPLICIT_MAKEDEPEND 0
 
+config proc get_analysis_cmd {} {
+    variable EXECUTABLE
+    variable SCAN_MODE
+
+    if { $::SCAN } {
+        set analyzer [file nativename $EXECUTABLE]
+        switch $SCAN_MODE {
+            # currently C++ analysis is highly experimental, and so not used here
+            "cxx"   { set analyzer [list [file nativename $EXECUTABLE]] }
+            "c"     { set analyzer [list [get_env CC ccc-analyzer]] }
+        }
+        return $analyzer
+    } else {
+        return [list [file nativename $EXECUTABLE]]
+    }
+}
+
 # return desired meta compiler options
 config proc meta_option_flags {opt} {
     variable METAOPT
@@ -76,13 +95,12 @@ config proc preprocess {dest src flags opt} {
 
 # compile a source file (C or C++)
 config proc compile_obj {obj src dep flags opt} {
-
-    variable EXECUTABLE
-
     # convert filenames to native representation, and pay attention
     #   attention that no argument is evaluated too often ('\' problem)!
     set flags [concat $flags [meta_option_flags $opt]]
-    set cmd [list exec [file nativename $EXECUTABLE] "-Wp,-MMD,$dep"]
+    set cmd [list exec] 
+    lconcat cmd [get_analysis_cmd] 
+    lappend cmd "-Wp,-MMD,$dep" 
     set cmd [concat $cmd $flags]
     lappend cmd  "-o" $obj "-c" $src
     uplevel \#0 cmd_thread [list $cmd]
@@ -176,6 +194,7 @@ config proc shlib_additional_opts {} {
 # link a shared lib
 config proc link_shlib {lib obj export_obj libspec flags opt} {
     variable EXECUTABLE
+
     if {$export_obj != {}} {
         log_msg "warning (gcc): no support for interface subset export"
     }
@@ -189,6 +208,8 @@ config proc link_shlib {lib obj export_obj libspec flags opt} {
     set flags [concat $flags [meta_option_flags $opt]]
     set libs  [make_lib_options $libspec $opt]
     set cmd [list cmd [file nativename $EXECUTABLE]]
+    set cmd [list cmd]
+    lconcat cmd [get_analysis_cmd]
     set cmd [concat $cmd $flags [list "-o" $lib] $obj $libs]
     uplevel \#0 $cmd
 
@@ -220,16 +241,14 @@ config proc scriptpath_option { path } {
 
 # link an executable
 config proc link_exe {prog obj libspec flags opt} {
-
     set flags [concat $flags [meta_option_flags $opt]]
     set libs  [make_lib_options $libspec $opt]
-
     set flags [concat $flags [exe_additional_opts]]
 
-    variable EXECUTABLE
-    set cmd [concat [list exec [file nativename $EXECUTABLE]] $flags]
+    set cmd [list exec]
+    lconcat cmd [get_analysis_cmd]
+    set cmd [concat $cmd $flags]
     set cmd [concat $cmd [list "-o" $prog] $obj $libs]
-
     set cmds [list $cmd]
 
     if [lcontains $opt "strip"] {

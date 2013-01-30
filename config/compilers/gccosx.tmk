@@ -4,7 +4,7 @@
 source [file join $::tmk::compilersConfigDir gcc.tmk]
 
 # set osx-specific flags
-set_ifndef base_CFLAGS {-fno-common -Wnewline-eof -mmacosx-version-min=10.6 -headerpad_max_install_names -D__DARWIN_UNIX03=0}
+set_ifndef base_CFLAGS {-fno-common -Wnewline-eof -mmacosx-version-min=10.6 -D__DARWIN_UNIX03=0}
 foreach flag {FLAGS_PRF FLAGS_DBG FLAGS_STD FLAGS_OPT FLAGS_MAX} {
     config set $flag [concat $base_CFLAGS [set $flag]]
 }
@@ -16,9 +16,6 @@ foreach flag {LDFLAGS_PRF LDFLAGS_DBG LDFLAGS_STD LDFLAGS_OPT LDFLAGS_MAX} {
 
 # compile a source file (C or C++) 
 config proc compile_obj {obj src dep flags opt} {
-
-    variable EXECUTABLE
-
     # convert filenames to native representation, and pay attention
     #   attention that no argument is evaluated too often ('\' problem)!
     set flags [concat $flags [meta_option_flags $opt]]
@@ -26,7 +23,9 @@ config proc compile_obj {obj src dep flags opt} {
         lappend flags -arch $arch
     }
 
-    set cmd [list exec [file nativename $EXECUTABLE] "-Wp,-MMD,$dep"]
+    set cmd [list exec]
+    lconcat cmd [get_analysis_cmd]
+    lappend cmd "-Wp,-MMD,$dep"
     set cmd [concat $cmd $flags]
     lappend cmd  "-o" $obj "-c" $src
     uplevel \#0 cmd_thread [list $cmd]

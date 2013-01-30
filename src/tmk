@@ -1274,6 +1274,7 @@ set ::PROFILING 0
 
 set ::SAY 0
 set ::BEEP 0
+set ::SCAN 0
 
 # on Windows, should use the registry package
 set ::tmk::useRegistry 0
@@ -1321,6 +1322,9 @@ if [info exists ::env(TMK_TCLSH) ]  {
 # ===============
 
 proc ::tmk::main {argv0 argv} {
+    if { [info exists ::env(CCC_ANALYZER_OUTPUT_FORMAT)] } {
+        set ::SCAN 1
+    }
 
     ::tmk::import [file join $tmk::srcDir utils.tmk]
 
